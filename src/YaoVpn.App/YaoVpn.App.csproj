@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <AssemblyName>YaoVPN</AssemblyName>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <StartupObject>YaoVpn.App.Program</StartupObject>
+    <Version>1.0.0</Version>
+  </PropertyGroup>
+  <ItemGroup><ProjectReference Include="../YaoVpn.Core/YaoVpn.Core.csproj" /></ItemGroup>
+  <ItemGroup>
+    <Content Include="../../runtime/sing-box.exe" Link="core/sing-box.exe" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="Always" />
+    <Content Include="../../runtime/LICENSE.sing-box.txt" Link="core/LICENSE.sing-box.txt" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="Always" />
+  </ItemGroup>
+</Project>

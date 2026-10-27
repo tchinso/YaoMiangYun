@@ -1,0 +1,10 @@
+**/bin/
+**/obj/
+runtime/
+artifacts/
+.vs/
+*.user
+*.dpapi
+*.log
+*.zip
+*.local.json
