@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Runtime.InteropServices;
+using System.Text;
 using Microsoft.Win32.SafeHandles;
 
 namespace YaoVpn.App.Services;
@@ -10,13 +11,16 @@ internal sealed class CoreProcess : IAsyncDisposable
     private readonly SafeFileHandle job;
     private readonly Task drainOutput;
     private readonly Task drainError;
+    private readonly TrafficLogParser trafficParser = new();
+    private readonly Action<TrafficRecord>? traffic;
     private readonly TaskCompletionSource ready = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private static readonly ConsoleHandler Handler = _ => true;
 
-    private CoreProcess(Process process, SafeFileHandle job)
+    private CoreProcess(Process process, SafeFileHandle job, Action<TrafficRecord>? traffic)
     {
         this.process = process;
         this.job = job;
+        this.traffic = traffic;
         drainOutput = DrainAsync(process.StandardOutput);
         drainError = DrainAsync(process.StandardError);
     }
@@ -24,7 +28,7 @@ internal sealed class CoreProcess : IAsyncDisposable
     public Task Exit => process.WaitForExitAsync();
     public bool HasExited => process.HasExited;
 
-    public static async Task<CoreProcess> StartAsync(string configPath, string directory, CancellationToken token)
+    public static async Task<CoreProcess> StartAsync(string configPath, string directory, CancellationToken token, Action<TrafficRecord>? traffic = null)
     {
         // A private hidden console allows Go to receive Ctrl+C and restore routes/DNS on normal OFF.
         if (GetConsoleWindow() == IntPtr.Zero && !AllocConsole()) throw new IOException("Console setup failed.");
@@ -32,24 +36,19 @@ internal sealed class CoreProcess : IAsyncDisposable
         if (!SetConsoleCtrlHandler(Handler, true)) throw new IOException("Console control setup failed.");
         var job = CreateJobObject(IntPtr.Zero, null);
         if (job.IsInvalid) throw new IOException("Job creation failed.");
-        var limits = new ExtendedLimits { BasicLimitInformation = new BasicLimits { LimitFlags = 0x2000 } };
+        // No child processes are needed by the pinned core: also cap the job at one
+        // process so a compromised engine cannot spawn a shell from this job.
+        var limits = new ExtendedLimits { BasicLimitInformation = new BasicLimits { LimitFlags = 0x2000 | 0x8, ActiveProcessLimit = 1 } };
         if (!SetInformationJobObject(job, 9, ref limits, (uint)Marshal.SizeOf<ExtendedLimits>()))
         { job.Dispose(); throw new IOException("Job setup failed."); }
-        var start = new ProcessStartInfo(BinaryTrust.CorePath)
-        {
-            WorkingDirectory = directory, UseShellExecute = false, CreateNoWindow = false,
-            RedirectStandardOutput = true, RedirectStandardError = true, RedirectStandardInput = true,
-            WindowStyle = ProcessWindowStyle.Hidden
-        };
-        start.ArgumentList.Add("run"); start.ArgumentList.Add("-c"); start.ArgumentList.Add(configPath);
-        start.ArgumentList.Add("-D"); start.ArgumentList.Add(directory);
+        var start = CreateStartInfo(configPath, directory);
         Process? child = null;
         CoreProcess? instance = null;
         try
         {
             child = Process.Start(start) ?? throw new IOException("Core start failed.");
             if (!AssignProcessToJobObject(job, child.Handle)) throw new IOException("Core job assignment failed.");
-            instance = new CoreProcess(child, job);
+            instance = new CoreProcess(child, job, traffic);
             using var timeout = CancellationTokenSource.CreateLinkedTokenSource(token);
             timeout.CancelAfter(TimeSpan.FromSeconds(25));
             await Task.WhenAny(instance.ready.Task, instance.Exit).WaitAsync(timeout.Token);
@@ -68,11 +67,36 @@ internal sealed class CoreProcess : IAsyncDisposable
         }
     }
 
+    internal static ProcessStartInfo CreateStartInfo(string configPath, string directory)
+    {
+        var start = new ProcessStartInfo(BinaryTrust.CorePath)
+        {
+            WorkingDirectory = directory, UseShellExecute = false, CreateNoWindow = false,
+            RedirectStandardOutput = true, RedirectStandardError = true, RedirectStandardInput = true,
+            WindowStyle = ProcessWindowStyle.Hidden
+        };
+        start.ArgumentList.Add("run"); start.ArgumentList.Add("-c"); start.ArgumentList.Add(configPath);
+        start.ArgumentList.Add("-D"); start.ArgumentList.Add(directory);
+        // The elevated network parser must not inherit proxy settings, Go TLS/debug
+        // overrides or user-controlled executable search paths from the UI process.
+        start.Environment.Clear();
+        var windows = Environment.GetFolderPath(Environment.SpecialFolder.Windows);
+        start.Environment["SystemRoot"] = windows;
+        start.Environment["WINDIR"] = windows;
+        start.Environment["PATH"] = Environment.SystemDirectory;
+        start.Environment["TEMP"] = directory;
+        start.Environment["TMP"] = directory;
+        start.Environment["NoDefaultCurrentDirectoryInExePath"] = "1";
+        return start;
+    }
+
     private async Task DrainAsync(StreamReader reader)
     {
         // Fixed-size reads: untrusted peer errors cannot cause unbounded line buffering or credential logs.
         var chars = new char[2048];
         var tail = "";
+        var line = new StringBuilder(2048);
+        var discardLine = false;
         try
         {
             int count;
@@ -81,6 +105,28 @@ internal sealed class CoreProcess : IAsyncDisposable
                 var text = tail + new string(chars, 0, count);
                 if (text.Contains("sing-box started", StringComparison.Ordinal)) ready.TrySetResult();
                 tail = text.Length > 80 ? text[^80..] : text;
+                if (traffic != null)
+                {
+                    for (var i = 0; i < count; i++)
+                    {
+                        if (chars[i] == '\n')
+                        {
+                            if (!discardLine)
+                            {
+                                TrafficRecord? record;
+                                lock (trafficParser) record = trafficParser.Parse(line.ToString().TrimEnd('\r'));
+                                if (record != null) traffic(record);
+                            }
+                            line.Clear();
+                            discardLine = false;
+                        }
+                        else if (!discardLine)
+                        {
+                            if (line.Length == 2048) { line.Clear(); discardLine = true; }
+                            else line.Append(chars[i]);
+                        }
+                    }
+                }
             }
         }
         catch (IOException) { }

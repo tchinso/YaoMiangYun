@@ -115,7 +115,7 @@
             </Grid>
             <StackPanel Grid.Row="1" Margin="0,26,0,22">
                 <TextBlock Text="연결은 간단하게, 제어는 직접." FontSize="23" FontWeight="SemiBold"/>
-                <TextBlock Text="구독을 불러오고 서버를 선택한 뒤 VPN을 켜세요." Foreground="{StaticResource MutedBrush}" Margin="0,8,0,0"/>
+                <TextBlock Text="구독과 서버를 불러오고, VPN을 사용할 사이트를 지정한 뒤 켜세요." Foreground="{StaticResource MutedBrush}" Margin="0,8,0,0"/>
             </StackPanel>
             <Grid Grid.Row="2">
                 <Grid.ColumnDefinitions><ColumnDefinition Width="0.9*"/><ColumnDefinition Width="20"/><ColumnDefinition Width="1.15*"/></Grid.ColumnDefinitions>
@@ -158,13 +158,19 @@
                         </StackPanel>
                         <StackPanel Grid.Row="4" Margin="0,24,0,0">
                             <Border Height="1" Background="#2A394D" Margin="0,0,0,18"/>
-                            <TextBlock Text="꺼지면 일반 인터넷으로 돌아갑니다" Foreground="#C6D2DF" FontSize="12" HorizontalAlignment="Center"/>
-                            <TextBlock Text="VPN 종료 · 코어 중단 시 자동 복구" Foreground="{StaticResource MutedBrush}" FontSize="11" HorizontalAlignment="Center" Margin="0,7,0,0"/>
+                            <TextBlock Text="끄면 이전 네트워크 설정으로 돌아갑니다" Foreground="#C6D2DF" FontSize="12" HorizontalAlignment="Center"/>
+                            <TextBlock Text="비정상 종료 후에는 다음 실행에서 복구" Foreground="{StaticResource MutedBrush}" FontSize="11" HorizontalAlignment="Center" Margin="0,7,0,0"/>
                         </StackPanel>
                     </Grid>
                 </Border>
                 <Border Grid.Column="2" Background="#111E30" BorderBrush="#24334A" BorderThickness="1" CornerRadius="20" Padding="26,26">
                     <StackPanel>
+                        <TextBlock Text="연결 방식" FontSize="16" FontWeight="SemiBold"/>
+                        <ComboBox x:Name="ConnectionModeBox" SelectedIndex="0" Margin="0,12,0,0" SelectionChanged="ConnectionModeBox_SelectionChanged" AutomationProperties.Name="VPN 연결 방식">
+                            <ComboBoxItem Content="앱 프록시 · 관리자 권한 없음"/>
+                            <ComboBoxItem Content="전체 시스템 TUN · 관리자 권한 필요"/>
+                        </ComboBox>
+                        <TextBlock x:Name="ConnectionModeHint" Text="시스템 프록시를 따르는 앱의 TCP만 적용됩니다. UDP·게임·프록시를 무시하는 앱은 일반 통신입니다." Foreground="{StaticResource MutedBrush}" FontSize="11" TextWrapping="Wrap" LineHeight="18" Margin="0,9,0,18"/>
                         <TextBlock Text="연결할 서버" FontSize="16" FontWeight="SemiBold"/>
                         <ComboBox x:Name="ServerBox" Margin="0,14,0,0" DisplayMemberPath="DisplayName" SelectionChanged="ServerBox_SelectionChanged"
                                   AutomationProperties.Name="VPN 서버 선택" ToolTip="구독에서 불러온 서버를 선택하세요"/>
@@ -184,15 +190,76 @@
                             <TextBlock x:Name="TestResultText" Grid.Column="1" Text="연결 후 확인할 수 있어요" Foreground="{StaticResource MutedBrush}" FontSize="11"
                                        TextWrapping="Wrap" VerticalAlignment="Center" Margin="12,0,0,0"/>
                         </Grid>
+                        <Button x:Name="IpButton" Content="공인 IP 변경 확인" Padding="13,10" Click="IpButton_Click" Margin="0,12,0,0"
+                                ToolTip="직접 연결 IP와 Cloudflare HTTPS에서 현재 선택 경로로 확인한 IP를 비교합니다"/>
+                        <TextBlock x:Name="IpResultText" Text="IP 비교는 연결 후 확인할 수 있어요" Foreground="{StaticResource MutedBrush}"
+                                   FontSize="11" TextWrapping="Wrap" LineHeight="18" Margin="0,8,0,0"/>
                     </StackPanel>
                 </Border>
             </Grid>
             <StackPanel Grid.Row="3" Margin="0,20,0,0">
+                <Expander Header="사이트별 VPN / 일반 통신 규칙" IsExpanded="True" Foreground="#EDF3F8" FontSize="14" Margin="0,0,0,18">
+                    <Border Background="#111E30" BorderBrush="#24334A" BorderThickness="1" CornerRadius="12" Padding="18" Margin="0,12,0,0">
+                        <StackPanel>
+                            <Grid>
+                                <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                                <TextBlock Text="나머지 사이트" VerticalAlignment="Center" Margin="0,0,16,0"/>
+                                <ComboBox x:Name="RoutingModeBox" Grid.Column="1" SelectionChanged="RoutingModeBox_SelectionChanged" AutomationProperties.Name="기본 통신 경로">
+                                    <ComboBoxItem Content="VPN 사용 · 지정한 사이트만 일반 통신"/>
+                                    <ComboBoxItem Content="일반 통신 · 지정한 사이트만 VPN 사용"/>
+                                </ComboBox>
+                            </Grid>
+                            <TextBlock Text="도메인과 그 하위 도메인에 적용됩니다. 더 구체적인 도메인이 우선합니다." Foreground="{StaticResource MutedBrush}" FontSize="11" TextWrapping="Wrap" Margin="0,10,0,12"/>
+                            <Grid>
+                                <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                                <TextBox x:Name="DomainBox" Background="#0D1929" Foreground="#EDF3F8" BorderBrush="#34455E" Padding="11,10" VerticalContentAlignment="Center"
+                                         MaxLength="253" AutomationProperties.Name="사이트 도메인" ToolTip="example.com 형태로 입력하거나 아래 로그를 선택하세요"/>
+                                <Button x:Name="VpnRuleButton" Grid.Column="1" Content="VPN으로" Click="VpnRuleButton_Click" Padding="14,10" Margin="8,0,0,0"/>
+                                <Button x:Name="DirectRuleButton" Grid.Column="2" Content="일반 통신으로" Click="DirectRuleButton_Click" Padding="14,10" Margin="8,0,0,0"/>
+                            </Grid>
+                            <ListBox x:Name="RuleList" Height="95" Margin="0,12,0,8" Background="#0D1929" Foreground="#EDF3F8" BorderBrush="#34455E"
+                                     DisplayMemberPath="Label" AutomationProperties.Name="저장된 사이트 규칙"/>
+                            <Grid>
+                                <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                                <Button x:Name="RemoveRuleButton" Content="선택 규칙 삭제" Click="RemoveRuleButton_Click" Padding="12,9"/>
+                                <TextBlock x:Name="RoutingHint" Grid.Column="1" Text="규칙은 다음 연결부터 적용됩니다." Foreground="{StaticResource MutedBrush}" FontSize="11" TextWrapping="Wrap" VerticalAlignment="Center" Margin="12,0,0,0"/>
+                            </Grid>
+                            <TextBlock Text="사이트가 쓰는 별도 CDN 도메인은 따로 지정하세요. ECH·앱 자체 암호화 DNS·기존 DNS 캐시 등으로 도메인을 알 수 없는 연결에는 기본 경로가 적용됩니다. 규칙을 바꾼 뒤 VPN을 다시 연결하고 해당 앱의 기존 연결도 새로 여세요."
+                                       Foreground="{StaticResource MutedBrush}" FontSize="11" TextWrapping="Wrap" LineHeight="18" Margin="0,12,0,0"/>
+                            <TextBlock Text="앱의 연결 확인용 connectivitycheck.gstatic.com 통신은 항상 VPN을 사용합니다." Foreground="{StaticResource MutedBrush}" FontSize="11" TextWrapping="Wrap" Margin="0,6,0,0"/>
+                        </StackPanel>
+                    </Border>
+                </Expander>
+                <Expander Header="통신 로그 · 연결 시도 메타데이터" IsExpanded="True" Foreground="#EDF3F8" FontSize="14" Margin="0,0,0,18">
+                    <Border Background="#111E30" BorderBrush="#24334A" BorderThickness="1" CornerRadius="12" Padding="18" Margin="0,12,0,0">
+                        <StackPanel>
+                            <TextBlock Text="이 앱의 코어를 지난 연결만 보입니다. 도메인 행을 선택하면 위 입력란에 복사됩니다. IP만 보이는 행은 도메인을 직접 입력하세요." Foreground="{StaticResource MutedBrush}" FontSize="11" TextWrapping="Wrap" Margin="0,0,0,10"/>
+                            <ListView x:Name="TrafficList" Height="210" Background="#0D1929" Foreground="#EDF3F8" BorderBrush="#34455E"
+                                      SelectionChanged="TrafficList_SelectionChanged" ScrollViewer.HorizontalScrollBarVisibility="Auto" AutomationProperties.Name="통신 연결 시도 로그">
+                                <ListView.View>
+                                    <GridView>
+                                        <GridViewColumn Header="시간" Width="76" DisplayMemberBinding="{Binding DisplayTime}"/>
+                                        <GridViewColumn Header="도메인 / IP" Width="310" DisplayMemberBinding="{Binding Host}"/>
+                                        <GridViewColumn Header="포트" Width="60" DisplayMemberBinding="{Binding Port}"/>
+                                        <GridViewColumn Header="통신" Width="64" DisplayMemberBinding="{Binding Network}"/>
+                                        <GridViewColumn Header="경로" Width="100" DisplayMemberBinding="{Binding RouteLabel}"/>
+                                    </GridView>
+                                </ListView.View>
+                            </ListView>
+                            <Grid Margin="0,10,0,0">
+                                <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                                <Button x:Name="ClearTrafficButton" Content="로그 지우기" Click="ClearTrafficButton_Click" Padding="12,9"/>
+                                <TextBlock Grid.Column="1" Text="최근 300개 · 메모리에만 보관 · 연결 성공 보장 / 패킷 내용 기록 아님" Foreground="{StaticResource MutedBrush}" FontSize="11" TextWrapping="Wrap" VerticalAlignment="Center" Margin="12,0,0,0"/>
+                            </Grid>
+                        </StackPanel>
+                    </Border>
+                </Expander>
                 <TextBlock Text="구독 제공자의 앱이나 스크립트를 실행하지 않습니다." Foreground="#A9B8CB" FontSize="12" HorizontalAlignment="Center"/>
                 <Expander Header="사용 전 알아둘 점" Foreground="{StaticResource MutedBrush}" FontSize="11" Margin="0,16,0,0" HorizontalContentAlignment="Stretch">
                     <Border Background="#111E30" CornerRadius="9" Padding="14,12" Margin="0,10,0,0">
                         <TextBlock TextWrapping="Wrap" LineHeight="20">
                             연결에 사용하는 코어와 Windows 자체에 취약점이 있을 수 있으며, 악성코드가 없다고 보장할 수는 없습니다.<LineBreak/>
+                            HTTPS 인증서를 검증하고 업체 루트 인증서는 설치하지 않습니다. 암호화되지 않은 HTTP 통신은 업체가 읽거나 바꿀 수 있습니다.<LineBreak/>
                             영구 킬 스위치를 사용하지 않습니다. VPN을 끄거나 코어가 중단되면 일반 인터넷 연결로 돌아갑니다.
                         </TextBlock>
                     </Border>

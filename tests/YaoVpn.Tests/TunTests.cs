@@ -22,7 +22,7 @@ internal static class TunTests
         try
         {
             Console.WriteLine("Waiting for the user's Windows UAC approval...");
-            await service.ConnectAsync(node);
+            await service.ConnectAsync(node, ConnectionMode.SystemTun, RoutingPolicy.FullTunnel);
             if (!service.Status.IsConnected || !TunnelHealth.HasRoutes()) throw new InvalidOperationException("TUN route verification failed.");
             Console.WriteLine("PASS: TUN active; Windows IPv4 + IPv6 best routes point to YaoVPN");
             // A new client prevents reusing the pre-VPN established direct TCP connection.

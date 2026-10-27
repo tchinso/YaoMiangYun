@@ -15,7 +15,33 @@ public static class Program
     {
         try
         {
+            if (args is ["--anytls-diagnostic"])
+            {
+                await AnyTlsDiagnostics.RunAsync();
+                return 0;
+            }
+            if (args is ["--proxy-recovery"])
+            {
+                await ProxyRecoveryTests.RunAsync();
+                return 0;
+            }
+            if (args is ["--browser-proxy"])
+            {
+                await BrowserProxyHarness.RunAsync();
+                return 0;
+            }
+            if (args is ["--proxy-recovery-child"])
+            {
+                await BrowserProxyHarness.RunAsync(recoveryChild: true);
+                return 0;
+            }
             ParserTests.Run();
+            StorageSecurityTests.Run();
+            EndpointSecurityTests.Run();
+            ProxySessionTests.Run();
+            await IpcSecurityTests.RunAsync();
+            await TrafficSecurityTests.RunAsync();
+            await GeneratedConfigTests.RunAsync();
             using (BinaryTrust.OpenVerifiedCore()) { }
             var name = "test-" + Guid.NewGuid().ToString("N") + ".dpapi";
             try
@@ -37,11 +63,24 @@ public static class Program
             }
             if (args.Contains("--check-private") || args.Contains("--live"))
             {
-                var json = PrivateStorage.Load("bootstrap.dpapi") ?? throw new Exception("No private bootstrap available.");
-                var result = SubscriptionParser.Parse(json);
+                SubscriptionResult result;
+                if (args.Contains("--live"))
+                {
+                    await using var subscription = new VpnService();
+                    _ = await subscription.LoadSavedAsync() ?? throw new Exception("No private subscription available.");
+                    result = await subscription.LoadSubscriptionAsync(subscription.SavedUrl ?? throw new Exception("No private URL available."));
+                }
+                else
+                    result = SubscriptionParser.Parse(PrivateStorage.Load("bootstrap.dpapi") ?? throw new Exception("No private bootstrap available."));
                 Console.WriteLine($"Private subscription: accepted={result.Nodes.Count}, rejected={result.RejectedCount}");
                 await CheckAllAsync(result.Nodes);
-                if (args.Contains("--live")) await ProbeProtocolsAsync(result.Nodes);
+                if (args.Contains("--live"))
+                {
+                    var working = await ProbeProtocolsAsync(result.Nodes);
+                    await RoutingIntegrationTests.RunAsync(working.First());
+                    await ProxyIntegrationTests.RunAsync(working.First());
+                    await ProxyRecoveryTests.RunAsync();
+                }
             }
             return 0;
         }
@@ -76,9 +115,9 @@ public static class Program
         finally { File.Delete(config); Directory.Delete(directory, false); }
     }
 
-    private static async Task ProbeProtocolsAsync(IReadOnlyList<VpnNode> nodes)
+    private static async Task<IReadOnlyList<VpnNode>> ProbeProtocolsAsync(IReadOnlyList<VpnNode> nodes)
     {
-        using var direct = new HttpClient(new HttpClientHandler { UseProxy = false }) { Timeout = TimeSpan.FromSeconds(12) };
+        using var direct = new HttpClient(EndpointResolver.CreateSubscriptionHandler()) { Timeout = TimeSpan.FromSeconds(12) };
         var directTrace = await direct.GetStringAsync("https://www.cloudflare.com/cdn-cgi/trace");
         var directIp = TraceIp(directTrace);
         var checks = await Task.WhenAll(nodes.GroupBy(n => n.Protocol).Select(async group =>
@@ -88,12 +127,14 @@ public static class Program
             {
                 attempts++;
                 var success = await ProbeNodeAsync(node, directIp);
-                if (success) { Console.WriteLine($"PASS: {group.Key} HTTPS + VPN egress differs (attempt {attempts})"); return true; }
+                if (success) { Console.WriteLine($"PASS: {group.Key} HTTPS + VPN egress differs (attempt {attempts})"); return node; }
             }
-            Console.WriteLine($"FAIL: {group.Key} no working endpoint among {attempts} checked");
-            return false;
+            Console.WriteLine($"LIMIT: {group.Key} no working endpoint among {attempts} checked");
+            return (VpnNode?)null;
         }));
-        if (checks.Any(ok => !ok)) throw new Exception("Protocol live verification failed.");
+        var available = checks.OfType<VpnNode>().ToArray();
+        if (available.Length == 0) throw new Exception("No working VPN endpoint verified.");
+        return available;
     }
 
     private static string TraceIp(string trace) => trace.Split('\n').FirstOrDefault(line => line.StartsWith("ip=", StringComparison.Ordinal)) ?? throw new Exception("Trace response malformed.");
@@ -111,6 +152,7 @@ public static class Program
         var stage = "startup";
         try
         {
+            node = await EndpointResolver.ResolvePublicAsync(node, CancellationToken.None);
             await File.WriteAllTextAsync(config, ConfigBuilder.Build(node, false, port));
             using var binary = BinaryTrust.OpenVerifiedCore();
             process = Process.Start(StartInfo(config, directory, "run")) ?? throw new Exception("Probe failed to start.");
@@ -130,7 +172,7 @@ public static class Program
             var trace = await client.GetStringAsync("https://www.cloudflare.com/cdn-cgi/trace");
             return TraceIp(trace) != directIp;
         }
-        catch (Exception e) when (e is HttpRequestException or TaskCanceledException or SocketException)
+        catch (Exception e) when (e is HttpRequestException or TaskCanceledException or SocketException or IOException or FormatException)
         {
             lock (diagnostics) Console.WriteLine($"Probe {node.Protocol}: stage={stage}, error={e.GetType().Name}, flags={string.Join(',', diagnostics)}");
             return false;

@@ -8,6 +8,7 @@ namespace YaoVpn.App.Services;
 
 public static class PrivateStorage
 {
+    private const int MaximumStoredBytes = 4 * 1024 * 1024;
     public static string Root => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "YaoVPN");
 
     public static void SecureDirectory(string path)
@@ -25,27 +26,67 @@ public static class PrivateStorage
 
     public static void Save(string name, string value)
     {
+        var path = StoragePath(name);
         SecureDirectory(Root);
+        if (Encoding.UTF8.GetByteCount(value) > MaximumStoredBytes) throw new IOException("Stored data too large.");
         var clear = Encoding.UTF8.GetBytes(value);
-        var encrypted = Protect(clear, false);
+        byte[]? encrypted = null;
         try
         {
-            var path = Path.Combine(Root, name);
+            if (clear.Length > MaximumStoredBytes) throw new IOException("Stored data too large.");
+            encrypted = Protect(clear, false);
+            if (encrypted.Length > MaximumStoredBytes) throw new IOException("Stored data too large.");
             var temporary = Path.Combine(Root, Guid.NewGuid().ToString("N") + ".tmp");
-            try { File.WriteAllBytes(temporary, encrypted); File.Move(temporary, path, true); }
+            try
+            {
+                using (var output = new FileStream(temporary, FileMode.CreateNew, FileAccess.Write, FileShare.None))
+                { output.Write(encrypted); output.Flush(true); }
+                File.Move(temporary, path, true);
+            }
             finally { if (File.Exists(temporary)) File.Delete(temporary); }
         }
-        finally { CryptographicOperations.ZeroMemory(clear); CryptographicOperations.ZeroMemory(encrypted); }
+        finally { CryptographicOperations.ZeroMemory(clear); if (encrypted != null) CryptographicOperations.ZeroMemory(encrypted); }
     }
 
     public static string? Load(string name)
     {
-        var path = Path.Combine(Root, name);
+        var path = StoragePath(name);
         if (!File.Exists(path)) return null;
-        if (new FileInfo(path).Length > 4 * 1024 * 1024) throw new IOException("Stored data too large.");
-        var decrypted = Protect(File.ReadAllBytes(path), true);
-        try { return Encoding.UTF8.GetString(decrypted); }
-        finally { CryptographicOperations.ZeroMemory(decrypted); }
+        if ((File.GetAttributes(Root) & FileAttributes.ReparsePoint) != 0 ||
+            (File.GetAttributes(path) & FileAttributes.ReparsePoint) != 0)
+            throw new IOException("Unsafe storage path.");
+        // Validate the same locked file that is read. A separate FileInfo check followed by
+        // ReadAllBytes allowed replacement/growth between the size check and allocation.
+        using var input = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read);
+        if (input.Length is <= 0 or > MaximumStoredBytes) throw new IOException("Stored data too large.");
+        var encrypted = new byte[(int)input.Length];
+        byte[]? decrypted = null;
+        try
+        {
+            input.ReadExactly(encrypted);
+            decrypted = Protect(encrypted, true);
+            return new UTF8Encoding(false, true).GetString(decrypted);
+        }
+        finally
+        {
+            CryptographicOperations.ZeroMemory(encrypted);
+            if (decrypted != null) CryptographicOperations.ZeroMemory(decrypted);
+        }
+    }
+
+    private static string StoragePath(string name)
+    {
+        // Storage keys are application-owned file names, never paths, devices or NTFS streams.
+        if (string.IsNullOrWhiteSpace(name) || name.Length > 128 || name is "." or ".." ||
+            name.Any(c => !char.IsAsciiLetterOrDigit(c) && c is not '.' and not '-' and not '_') ||
+            name.EndsWith('.') || name.StartsWith('.'))
+            throw new ArgumentException("Invalid storage name.", nameof(name));
+        var stem = name.Split('.')[0];
+        if (stem.Equals("CON", StringComparison.OrdinalIgnoreCase) || stem.Equals("PRN", StringComparison.OrdinalIgnoreCase) ||
+            stem.Equals("AUX", StringComparison.OrdinalIgnoreCase) || stem.Equals("NUL", StringComparison.OrdinalIgnoreCase) ||
+            (stem.Length == 4 && (stem.StartsWith("COM", StringComparison.OrdinalIgnoreCase) || stem.StartsWith("LPT", StringComparison.OrdinalIgnoreCase)) && stem[3] is >= '0' and <= '9'))
+            throw new ArgumentException("Invalid storage name.", nameof(name));
+        return Path.Combine(Root, name);
     }
 
     private static byte[] Protect(byte[] bytes, bool decrypt)
