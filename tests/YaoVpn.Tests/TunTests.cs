@@ -13,7 +13,7 @@ internal static class TunTests
     {
         if (TunnelHealth.IsUp()) throw new InvalidOperationException("A tunnel is already active.");
         var result = SubscriptionParser.Parse(PrivateStorage.Load("bootstrap.dpapi") ?? throw new InvalidOperationException("Missing private subscription."));
-        var node = result.Nodes.First(n => n.Protocol == "vless");
+        var node = result.Nodes.First(n => n.Protocol == "vless" && !ServerCatalog.IsInformation(n.DisplayName));
         using var http = new HttpClient(new HttpClientHandler { UseProxy = false }) { Timeout = TimeSpan.FromSeconds(12) };
         static string Ip(string trace) => trace.Split('\n').First(line => line.StartsWith("ip=", StringComparison.Ordinal));
         var baseline = Ip(await http.GetStringAsync("https://www.cloudflare.com/cdn-cgi/trace"));

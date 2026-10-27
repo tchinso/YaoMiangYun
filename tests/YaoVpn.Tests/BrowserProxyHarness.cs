@@ -19,7 +19,7 @@ internal static class BrowserProxyHarness
         try
         {
             var connected = false;
-            foreach (var node in nodes.Where(node => node.Protocol == "vless").Take(4))
+            foreach (var node in nodes.Where(node => node.Protocol == "vless" && !ServerCatalog.IsInformation(node.DisplayName)).Take(4))
             {
                 try
                 {

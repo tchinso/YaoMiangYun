@@ -15,6 +15,16 @@ public static class Program
     {
         try
         {
+            if (args is ["--japan-diagnostic"])
+            {
+                await JapanDiagnostics.RunAsync();
+                return 0;
+            }
+            if (args is ["--session-private"])
+            {
+                await SessionIntegrationTests.RunPrivateAsync();
+                return 0;
+            }
             if (args is ["--anytls-diagnostic"])
             {
                 await AnyTlsDiagnostics.RunAsync();
@@ -36,6 +46,8 @@ public static class Program
                 return 0;
             }
             ParserTests.Run();
+            ServerCatalogTests.Run();
+            await ServiceLifecycleTests.RunAsync();
             StorageSecurityTests.Run();
             EndpointSecurityTests.Run();
             ProxySessionTests.Run();
@@ -120,7 +132,7 @@ public static class Program
         using var direct = new HttpClient(EndpointResolver.CreateSubscriptionHandler()) { Timeout = TimeSpan.FromSeconds(12) };
         var directTrace = await direct.GetStringAsync("https://www.cloudflare.com/cdn-cgi/trace");
         var directIp = TraceIp(directTrace);
-        var checks = await Task.WhenAll(nodes.GroupBy(n => n.Protocol).Select(async group =>
+        var checks = await Task.WhenAll(nodes.Where(node => !ServerCatalog.IsInformation(node.DisplayName)).GroupBy(n => n.Protocol).Select(async group =>
         {
             var attempts = 0;
             foreach (var node in group.Take(4))

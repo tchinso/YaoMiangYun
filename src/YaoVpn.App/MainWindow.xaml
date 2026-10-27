@@ -1,270 +1,48 @@
 <Window x:Class="YaoVpn.App.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="Yao VPN" Width="940" Height="790" MinWidth="820" MinHeight="730"
+        Title="Yao VPN" Width="950" Height="760" MinWidth="860" MinHeight="720"
         WindowStartupLocation="CenterScreen" Background="#0B1422" Foreground="#EDF3F8"
         FontFamily="Malgun Gothic, Segoe UI" FontSize="13"
         Loaded="Window_Loaded" Closing="Window_Closing">
-    <Window.Resources>
-        <SolidColorBrush x:Key="MutedBrush" Color="#91A1B7"/>
-        <SolidColorBrush x:Key="MintBrush" Color="#69E3C2"/>
-        <Style TargetType="Button">
-            <Setter Property="Foreground" Value="#EDF3F8"/>
-            <Setter Property="Background" Value="#223149"/>
-            <Setter Property="BorderBrush" Value="#34455E"/>
-            <Setter Property="BorderThickness" Value="1"/>
-            <Setter Property="Padding" Value="16,12"/>
-            <Setter Property="Cursor" Value="Hand"/>
-            <Setter Property="FontWeight" Value="SemiBold"/>
-            <Setter Property="Template">
-                <Setter.Value>
-                    <ControlTemplate TargetType="Button">
-                        <Border x:Name="Surface" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}"
-                                BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="9" Padding="{TemplateBinding Padding}">
-                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                        </Border>
-                        <ControlTemplate.Triggers>
-                            <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Surface" Property="Opacity" Value="0.82"/></Trigger>
-                            <Trigger Property="IsPressed" Value="True"><Setter TargetName="Surface" Property="Opacity" Value="0.65"/></Trigger>
-                            <Trigger Property="IsKeyboardFocused" Value="True"><Setter TargetName="Surface" Property="BorderBrush" Value="#69E3C2"/></Trigger>
-                            <Trigger Property="IsEnabled" Value="False"><Setter TargetName="Surface" Property="Opacity" Value="0.38"/></Trigger>
-                        </ControlTemplate.Triggers>
-                    </ControlTemplate>
-                </Setter.Value>
-            </Setter>
-        </Style>
-        <Style TargetType="ComboBoxItem">
-            <Setter Property="Foreground" Value="#EDF3F8"/>
-            <Setter Property="Padding" Value="12,11"/>
-            <Setter Property="Template">
-                <Setter.Value>
-                    <ControlTemplate TargetType="ComboBoxItem">
-                        <Border x:Name="Row" Background="Transparent" Padding="{TemplateBinding Padding}">
-                            <ContentPresenter/>
-                        </Border>
-                        <ControlTemplate.Triggers>
-                            <Trigger Property="IsHighlighted" Value="True"><Setter TargetName="Row" Property="Background" Value="#293C54"/></Trigger>
-                            <Trigger Property="IsSelected" Value="True"><Setter TargetName="Row" Property="Background" Value="#23483F"/></Trigger>
-                        </ControlTemplate.Triggers>
-                    </ControlTemplate>
-                </Setter.Value>
-            </Setter>
-        </Style>
-        <Style TargetType="ComboBox">
-            <Setter Property="Foreground" Value="#EDF3F8"/>
-            <Setter Property="Background" Value="#0D1929"/>
-            <Setter Property="BorderBrush" Value="#34455E"/>
-            <Setter Property="BorderThickness" Value="1"/>
-            <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
-            <Setter Property="ScrollViewer.HorizontalScrollBarVisibility" Value="Disabled"/>
-            <Setter Property="Template">
-                <Setter.Value>
-                    <ControlTemplate TargetType="ComboBox">
-                        <Grid>
-                            <ToggleButton x:Name="DropDownToggle" Focusable="False" ClickMode="Press"
-                                          IsChecked="{Binding IsDropDownOpen, Mode=TwoWay, RelativeSource={RelativeSource TemplatedParent}}">
-                                <ToggleButton.Template>
-                                    <ControlTemplate TargetType="ToggleButton">
-                                        <Border Background="#0D1929" BorderBrush="#34455E" BorderThickness="1" CornerRadius="9">
-                                            <Path Data="M 0 0 L 5 5 L 10 0" Stroke="#91A1B7" StrokeThickness="1.5"
-                                                  HorizontalAlignment="Right" VerticalAlignment="Center" Margin="0,0,16,0"/>
-                                        </Border>
-                                    </ControlTemplate>
-                                </ToggleButton.Template>
-                            </ToggleButton>
-                            <ContentPresenter Margin="13,13,36,13" IsHitTestVisible="False"
-                                              Content="{TemplateBinding SelectionBoxItem}"
-                                              ContentTemplate="{TemplateBinding SelectionBoxItemTemplate}"
-                                              ContentTemplateSelector="{TemplateBinding ItemTemplateSelector}"/>
-                            <Popup x:Name="PART_Popup" Placement="Bottom" AllowsTransparency="True" Focusable="False"
-                                   IsOpen="{TemplateBinding IsDropDownOpen}" PopupAnimation="Slide">
-                                <Border Background="#142236" BorderBrush="#34455E" BorderThickness="1" CornerRadius="8"
-                                        MinWidth="{Binding ActualWidth, RelativeSource={RelativeSource TemplatedParent}}" Margin="0,4,0,0">
-                                    <ScrollViewer MaxHeight="260" CanContentScroll="True"><ItemsPresenter KeyboardNavigation.DirectionalNavigation="Contained"/></ScrollViewer>
-                                </Border>
-                            </Popup>
-                        </Grid>
-                        <ControlTemplate.Triggers>
-                            <Trigger Property="IsEnabled" Value="False"><Setter Property="Opacity" Value="0.45"/></Trigger>
-                            <Trigger Property="IsKeyboardFocusWithin" Value="True"><Setter Property="BorderBrush" Value="#69E3C2"/></Trigger>
-                        </ControlTemplate.Triggers>
-                    </ControlTemplate>
-                </Setter.Value>
-            </Setter>
-        </Style>
-    </Window.Resources>
-    <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
-        <Grid Margin="34,28,34,24">
-            <Grid.RowDefinitions>
-                <RowDefinition Height="Auto"/>
-                <RowDefinition Height="Auto"/>
-                <RowDefinition Height="Auto"/>
-                <RowDefinition Height="Auto"/>
-            </Grid.RowDefinitions>
-            <Grid>
-                <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                    <Border Width="38" Height="38" Background="#173B38" CornerRadius="12" Margin="0,0,12,0">
-                        <Path Data="M 19 7 L 29 11 L 29 20 C 29 26 24 30 19 33 C 14 30 9 26 9 20 L 9 11 Z"
-                              Stroke="#69E3C2" StrokeThickness="1.8" Stretch="Uniform" Width="19" Height="24"/>
-                    </Border>
-                    <TextBlock Text="Yao VPN" FontFamily="Segoe UI" FontSize="25" FontWeight="SemiBold" VerticalAlignment="Center"/>
-                </StackPanel>
-                <Border HorizontalAlignment="Right" VerticalAlignment="Center" Background="#162236" CornerRadius="12" Padding="11,5">
-                    <TextBlock Text="시작은 항상 OFF" FontSize="11" Foreground="{StaticResource MutedBrush}"/>
-                </Border>
-            </Grid>
-            <StackPanel Grid.Row="1" Margin="0,26,0,22">
-                <TextBlock Text="연결은 간단하게, 제어는 직접." FontSize="23" FontWeight="SemiBold"/>
-                <TextBlock Text="구독과 서버를 불러오고, VPN을 사용할 사이트를 지정한 뒤 켜세요." Foreground="{StaticResource MutedBrush}" Margin="0,8,0,0"/>
+    <Window.Resources><ResourceDictionary><ResourceDictionary.MergedDictionaries><ResourceDictionary Source="UiTheme.xaml"/></ResourceDictionary.MergedDictionaries></ResourceDictionary></Window.Resources>
+    <Grid Margin="28,22,28,18">
+        <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+        <Grid>
+            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                <Border Width="36" Height="36" Background="#173B38" CornerRadius="11" Margin="0,0,11,0"><Path Data="M 19 7 L 29 11 L 29 20 C 29 26 24 30 19 33 C 14 30 9 26 9 20 L 9 11 Z" Stroke="#69E3C2" StrokeThickness="1.8" Stretch="Uniform" Width="18" Height="23"/></Border>
+                <TextBlock Text="Yao VPN" FontFamily="Segoe UI" FontSize="24" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                <TextBlock Text="시작은 항상 OFF" Foreground="{StaticResource MutedBrush}" FontSize="11" VerticalAlignment="Center" Margin="16,0,0,0"/>
             </StackPanel>
-            <Grid Grid.Row="2">
-                <Grid.ColumnDefinitions><ColumnDefinition Width="0.9*"/><ColumnDefinition Width="20"/><ColumnDefinition Width="1.15*"/></Grid.ColumnDefinitions>
-                <Border Background="#142135" BorderBrush="#24334A" BorderThickness="1" CornerRadius="20" Padding="26,27">
-                    <Grid>
-                        <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
-                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
-                            <Ellipse x:Name="StatusDot" Width="6" Height="6" Fill="#91A1B7" VerticalAlignment="Center" Margin="0,0,7,0"/>
-                            <TextBlock x:Name="StatusLabel" Text="VPN 꺼짐" FontSize="12" Foreground="{StaticResource MutedBrush}"/>
-                        </StackPanel>
-                        <Button x:Name="PowerButton" Grid.Row="1" Width="148" Height="148" Margin="0,25,0,22"
-                                Click="PowerButton_Click" AutomationProperties.Name="VPN 켜기" ToolTip="선택한 서버로 VPN 연결"
-                                Background="#1A2B40" BorderBrush="#41536A" BorderThickness="2">
-                            <Button.Template>
-                                <ControlTemplate TargetType="Button">
-                                    <Border x:Name="PowerSurface" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}"
-                                            BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="74">
-                                        <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                                    </Border>
-                                    <ControlTemplate.Triggers>
-                                        <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="PowerSurface" Property="Opacity" Value="0.83"/></Trigger>
-                                        <Trigger Property="IsPressed" Value="True"><Setter TargetName="PowerSurface" Property="Opacity" Value="0.65"/></Trigger>
-                                        <Trigger Property="IsKeyboardFocused" Value="True"><Setter TargetName="PowerSurface" Property="BorderBrush" Value="White"/></Trigger>
-                                        <Trigger Property="IsEnabled" Value="False"><Setter TargetName="PowerSurface" Property="Opacity" Value="0.4"/></Trigger>
-                                    </ControlTemplate.Triggers>
-                                </ControlTemplate>
-                            </Button.Template>
-                            <StackPanel>
-                                <Grid Width="36" Height="37" Margin="0,0,0,11">
-                                    <Path x:Name="PowerArc" Data="M 9 7 A 15 15 0 1 0 27 7" Stroke="#A7B8CD" StrokeThickness="3" StrokeStartLineCap="Round" StrokeEndLineCap="Round"/>
-                                    <Path x:Name="PowerLine" Data="M 18 1 L 18 17" Stroke="#A7B8CD" StrokeThickness="3" StrokeStartLineCap="Round" StrokeEndLineCap="Round"/>
-                                </Grid>
-                                <TextBlock x:Name="PowerText" Text="OFF" FontFamily="Segoe UI" FontSize="21" FontWeight="SemiBold" HorizontalAlignment="Center" Foreground="#C7D3E2"/>
-                            </StackPanel>
-                        </Button>
-                        <StackPanel Grid.Row="2">
-                            <TextBlock x:Name="ConnectionTitle" Text="연결할 준비가 되었어요" FontSize="18" FontWeight="SemiBold" TextAlignment="Center" TextWrapping="Wrap"/>
-                            <TextBlock x:Name="MessageText" Text="구독 주소를 입력해 서버를 불러오세요." Foreground="{StaticResource MutedBrush}"
-                                       LineHeight="21" TextWrapping="Wrap" TextAlignment="Center" Margin="0,10,0,0" MinHeight="62"/>
-                        </StackPanel>
-                        <StackPanel Grid.Row="4" Margin="0,24,0,0">
-                            <Border Height="1" Background="#2A394D" Margin="0,0,0,18"/>
-                            <TextBlock Text="끄면 이전 네트워크 설정으로 돌아갑니다" Foreground="#C6D2DF" FontSize="12" HorizontalAlignment="Center"/>
-                            <TextBlock Text="비정상 종료 후에는 다음 실행에서 복구" Foreground="{StaticResource MutedBrush}" FontSize="11" HorizontalAlignment="Center" Margin="0,7,0,0"/>
-                        </StackPanel>
-                    </Grid>
-                </Border>
-                <Border Grid.Column="2" Background="#111E30" BorderBrush="#24334A" BorderThickness="1" CornerRadius="20" Padding="26,26">
-                    <StackPanel>
-                        <TextBlock Text="연결 방식" FontSize="16" FontWeight="SemiBold"/>
-                        <ComboBox x:Name="ConnectionModeBox" SelectedIndex="0" Margin="0,12,0,0" SelectionChanged="ConnectionModeBox_SelectionChanged" AutomationProperties.Name="VPN 연결 방식">
-                            <ComboBoxItem Content="앱 프록시 · 관리자 권한 없음"/>
-                            <ComboBoxItem Content="전체 시스템 TUN · 관리자 권한 필요"/>
-                        </ComboBox>
-                        <TextBlock x:Name="ConnectionModeHint" Text="시스템 프록시를 따르는 앱의 TCP만 적용됩니다. UDP·게임·프록시를 무시하는 앱은 일반 통신입니다." Foreground="{StaticResource MutedBrush}" FontSize="11" TextWrapping="Wrap" LineHeight="18" Margin="0,9,0,18"/>
-                        <TextBlock Text="연결할 서버" FontSize="16" FontWeight="SemiBold"/>
-                        <ComboBox x:Name="ServerBox" Margin="0,14,0,0" DisplayMemberPath="DisplayName" SelectionChanged="ServerBox_SelectionChanged"
-                                  AutomationProperties.Name="VPN 서버 선택" ToolTip="구독에서 불러온 서버를 선택하세요"/>
-                        <TextBlock x:Name="ServerHint" Text="아직 불러온 서버가 없습니다." Foreground="{StaticResource MutedBrush}" FontSize="11" TextWrapping="Wrap" LineHeight="18" Margin="0,9,0,0" MinHeight="38"/>
-                        <Border Background="#26364A" Height="1" Margin="0,17,0,21"/>
-                        <TextBlock Text="구독 주소" FontSize="16" FontWeight="SemiBold"/>
-                        <TextBlock Text="HTTPS 구독 링크를 붙여넣으세요." Foreground="{StaticResource MutedBrush}" FontSize="11" Margin="0,7,0,10"/>
-                        <PasswordBox x:Name="SubscriptionBox" Background="#0D1929" Foreground="#EDF3F8" BorderBrush="#34455E"
-                                     BorderThickness="1" Padding="12,12" FontSize="14" PasswordChar="●"
-                                     AutomationProperties.Name="구독 주소 (숨김)" ToolTip="구독 주소는 화면에서 숨겨집니다"/>
-                        <Button x:Name="RefreshButton" Content="구독 불러오기 / 새로고침" Click="RefreshButton_Click" Margin="0,12,0,0"
-                                Background="#69E3C2" Foreground="#102C2A" BorderBrush="#69E3C2"/>
-                        <TextBlock Text="주소는 화면에 표시되지 않습니다." Foreground="{StaticResource MutedBrush}" FontSize="11" Margin="0,9,0,0"/>
-                        <Grid Margin="0,25,0,0">
-                            <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
-                            <Button x:Name="TestButton" Content="연결 테스트" Padding="13,10" Click="TestButton_Click" ToolTip="VPN 연결 후 인터넷 응답을 확인합니다"/>
-                            <TextBlock x:Name="TestResultText" Grid.Column="1" Text="연결 후 확인할 수 있어요" Foreground="{StaticResource MutedBrush}" FontSize="11"
-                                       TextWrapping="Wrap" VerticalAlignment="Center" Margin="12,0,0,0"/>
-                        </Grid>
-                        <Button x:Name="IpButton" Content="공인 IP 변경 확인" Padding="13,10" Click="IpButton_Click" Margin="0,12,0,0"
-                                ToolTip="직접 연결 IP와 Cloudflare HTTPS에서 현재 선택 경로로 확인한 IP를 비교합니다"/>
-                        <TextBlock x:Name="IpResultText" Text="IP 비교는 연결 후 확인할 수 있어요" Foreground="{StaticResource MutedBrush}"
-                                   FontSize="11" TextWrapping="Wrap" LineHeight="18" Margin="0,8,0,0"/>
-                    </StackPanel>
-                </Border>
-            </Grid>
-            <StackPanel Grid.Row="3" Margin="0,20,0,0">
-                <Expander Header="사이트별 VPN / 일반 통신 규칙" IsExpanded="True" Foreground="#EDF3F8" FontSize="14" Margin="0,0,0,18">
-                    <Border Background="#111E30" BorderBrush="#24334A" BorderThickness="1" CornerRadius="12" Padding="18" Margin="0,12,0,0">
-                        <StackPanel>
-                            <Grid>
-                                <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
-                                <TextBlock Text="나머지 사이트" VerticalAlignment="Center" Margin="0,0,16,0"/>
-                                <ComboBox x:Name="RoutingModeBox" Grid.Column="1" SelectionChanged="RoutingModeBox_SelectionChanged" AutomationProperties.Name="기본 통신 경로">
-                                    <ComboBoxItem Content="VPN 사용 · 지정한 사이트만 일반 통신"/>
-                                    <ComboBoxItem Content="일반 통신 · 지정한 사이트만 VPN 사용"/>
-                                </ComboBox>
-                            </Grid>
-                            <TextBlock Text="도메인과 그 하위 도메인에 적용됩니다. 더 구체적인 도메인이 우선합니다." Foreground="{StaticResource MutedBrush}" FontSize="11" TextWrapping="Wrap" Margin="0,10,0,12"/>
-                            <Grid>
-                                <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
-                                <TextBox x:Name="DomainBox" Background="#0D1929" Foreground="#EDF3F8" BorderBrush="#34455E" Padding="11,10" VerticalContentAlignment="Center"
-                                         MaxLength="253" AutomationProperties.Name="사이트 도메인" ToolTip="example.com 형태로 입력하거나 아래 로그를 선택하세요"/>
-                                <Button x:Name="VpnRuleButton" Grid.Column="1" Content="VPN으로" Click="VpnRuleButton_Click" Padding="14,10" Margin="8,0,0,0"/>
-                                <Button x:Name="DirectRuleButton" Grid.Column="2" Content="일반 통신으로" Click="DirectRuleButton_Click" Padding="14,10" Margin="8,0,0,0"/>
-                            </Grid>
-                            <ListBox x:Name="RuleList" Height="95" Margin="0,12,0,8" Background="#0D1929" Foreground="#EDF3F8" BorderBrush="#34455E"
-                                     DisplayMemberPath="Label" AutomationProperties.Name="저장된 사이트 규칙"/>
-                            <Grid>
-                                <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
-                                <Button x:Name="RemoveRuleButton" Content="선택 규칙 삭제" Click="RemoveRuleButton_Click" Padding="12,9"/>
-                                <TextBlock x:Name="RoutingHint" Grid.Column="1" Text="규칙은 다음 연결부터 적용됩니다." Foreground="{StaticResource MutedBrush}" FontSize="11" TextWrapping="Wrap" VerticalAlignment="Center" Margin="12,0,0,0"/>
-                            </Grid>
-                            <TextBlock Text="사이트가 쓰는 별도 CDN 도메인은 따로 지정하세요. ECH·앱 자체 암호화 DNS·기존 DNS 캐시 등으로 도메인을 알 수 없는 연결에는 기본 경로가 적용됩니다. 규칙을 바꾼 뒤 VPN을 다시 연결하고 해당 앱의 기존 연결도 새로 여세요."
-                                       Foreground="{StaticResource MutedBrush}" FontSize="11" TextWrapping="Wrap" LineHeight="18" Margin="0,12,0,0"/>
-                            <TextBlock Text="앱의 연결 확인용 connectivitycheck.gstatic.com 통신은 항상 VPN을 사용합니다." Foreground="{StaticResource MutedBrush}" FontSize="11" TextWrapping="Wrap" Margin="0,6,0,0"/>
-                        </StackPanel>
-                    </Border>
-                </Expander>
-                <Expander Header="통신 로그 · 연결 시도 메타데이터" IsExpanded="True" Foreground="#EDF3F8" FontSize="14" Margin="0,0,0,18">
-                    <Border Background="#111E30" BorderBrush="#24334A" BorderThickness="1" CornerRadius="12" Padding="18" Margin="0,12,0,0">
-                        <StackPanel>
-                            <TextBlock Text="이 앱의 코어를 지난 연결만 보입니다. 도메인 행을 선택하면 위 입력란에 복사됩니다. IP만 보이는 행은 도메인을 직접 입력하세요." Foreground="{StaticResource MutedBrush}" FontSize="11" TextWrapping="Wrap" Margin="0,0,0,10"/>
-                            <ListView x:Name="TrafficList" Height="210" Background="#0D1929" Foreground="#EDF3F8" BorderBrush="#34455E"
-                                      SelectionChanged="TrafficList_SelectionChanged" ScrollViewer.HorizontalScrollBarVisibility="Auto" AutomationProperties.Name="통신 연결 시도 로그">
-                                <ListView.View>
-                                    <GridView>
-                                        <GridViewColumn Header="시간" Width="76" DisplayMemberBinding="{Binding DisplayTime}"/>
-                                        <GridViewColumn Header="도메인 / IP" Width="310" DisplayMemberBinding="{Binding Host}"/>
-                                        <GridViewColumn Header="포트" Width="60" DisplayMemberBinding="{Binding Port}"/>
-                                        <GridViewColumn Header="통신" Width="64" DisplayMemberBinding="{Binding Network}"/>
-                                        <GridViewColumn Header="경로" Width="100" DisplayMemberBinding="{Binding RouteLabel}"/>
-                                    </GridView>
-                                </ListView.View>
-                            </ListView>
-                            <Grid Margin="0,10,0,0">
-                                <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
-                                <Button x:Name="ClearTrafficButton" Content="로그 지우기" Click="ClearTrafficButton_Click" Padding="12,9"/>
-                                <TextBlock Grid.Column="1" Text="최근 300개 · 메모리에만 보관 · 연결 성공 보장 / 패킷 내용 기록 아님" Foreground="{StaticResource MutedBrush}" FontSize="11" TextWrapping="Wrap" VerticalAlignment="Center" Margin="12,0,0,0"/>
-                            </Grid>
-                        </StackPanel>
-                    </Border>
-                </Expander>
-                <TextBlock Text="구독 제공자의 앱이나 스크립트를 실행하지 않습니다." Foreground="#A9B8CB" FontSize="12" HorizontalAlignment="Center"/>
-                <Expander Header="사용 전 알아둘 점" Foreground="{StaticResource MutedBrush}" FontSize="11" Margin="0,16,0,0" HorizontalContentAlignment="Stretch">
-                    <Border Background="#111E30" CornerRadius="9" Padding="14,12" Margin="0,10,0,0">
-                        <TextBlock TextWrapping="Wrap" LineHeight="20">
-                            연결에 사용하는 코어와 Windows 자체에 취약점이 있을 수 있으며, 악성코드가 없다고 보장할 수는 없습니다.<LineBreak/>
-                            HTTPS 인증서를 검증하고 업체 루트 인증서는 설치하지 않습니다. 암호화되지 않은 HTTP 통신은 업체가 읽거나 바꿀 수 있습니다.<LineBreak/>
-                            영구 킬 스위치를 사용하지 않습니다. VPN을 끄거나 코어가 중단되면 일반 인터넷 연결로 돌아갑니다.
-                        </TextBlock>
-                    </Border>
-                </Expander>
-            </StackPanel>
+            <Button x:Name="RulesWindowButton" Content="사이트 규칙 · 통신 로그 ↗" Click="RulesWindowButton_Click" HorizontalAlignment="Right" Padding="15,10" AutomationProperties.Name="사이트 규칙 및 통신 로그 창 열기"/>
         </Grid>
-    </ScrollViewer>
+        <StackPanel Grid.Row="1" Margin="0,17,0,17"><TextBlock Text="연결할 서버와 실제 출구를 한눈에." FontSize="21" FontWeight="SemiBold"/><TextBlock Text="서버 이름의 국가는 공급자 표시입니다. 연결 후 실제 VPN 출구 국가를 따로 확인합니다." Foreground="{StaticResource MutedBrush}" Margin="0,6,0,0" TextWrapping="Wrap"/></StackPanel>
+        <Grid Grid.Row="2">
+            <Grid.ColumnDefinitions><ColumnDefinition Width="0.85*"/><ColumnDefinition Width="18"/><ColumnDefinition Width="1.15*"/></Grid.ColumnDefinitions>
+            <Border Background="#142135" BorderBrush="#24334A" BorderThickness="1" CornerRadius="18" Padding="22,18">
+                <Grid>
+                    <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Center"><Ellipse x:Name="StatusDot" Width="6" Height="6" Fill="#91A1B7" VerticalAlignment="Center" Margin="0,0,7,0"/><TextBlock x:Name="StatusLabel" Text="VPN 꺼짐" FontSize="12" Foreground="{StaticResource MutedBrush}"/></StackPanel>
+                    <Button x:Name="PowerButton" Grid.Row="1" Width="132" Height="132" Margin="0,11,0,10" VerticalAlignment="Center" Click="PowerButton_Click" AutomationProperties.Name="VPN 켜기" ToolTip="선택한 서버로 VPN 연결" Background="#1A2B40" BorderBrush="#41536A" BorderThickness="2">
+                        <Button.Template><ControlTemplate TargetType="Button"><Border x:Name="PowerSurface" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="72"><ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/></Border><ControlTemplate.Triggers><Trigger Property="IsMouseOver" Value="True"><Setter TargetName="PowerSurface" Property="Opacity" Value="0.83"/></Trigger><Trigger Property="IsPressed" Value="True"><Setter TargetName="PowerSurface" Property="Opacity" Value="0.65"/></Trigger><Trigger Property="IsKeyboardFocused" Value="True"><Setter TargetName="PowerSurface" Property="BorderBrush" Value="White"/></Trigger><Trigger Property="IsEnabled" Value="False"><Setter TargetName="PowerSurface" Property="Opacity" Value="0.4"/></Trigger></ControlTemplate.Triggers></ControlTemplate></Button.Template>
+                        <StackPanel><Grid Width="36" Height="37" Margin="0,0,0,10"><Path x:Name="PowerArc" Data="M 9 7 A 15 15 0 1 0 27 7" Stroke="#A7B8CD" StrokeThickness="3" StrokeStartLineCap="Round" StrokeEndLineCap="Round"/><Path x:Name="PowerLine" Data="M 18 1 L 18 17" Stroke="#A7B8CD" StrokeThickness="3" StrokeStartLineCap="Round" StrokeEndLineCap="Round"/></Grid><TextBlock x:Name="PowerText" Text="OFF" FontFamily="Segoe UI" FontSize="21" FontWeight="SemiBold" HorizontalAlignment="Center" Foreground="#C7D3E2"/></StackPanel>
+                    </Button>
+                    <StackPanel Grid.Row="2"><TextBlock x:Name="ConnectionTitle" Text="연결할 준비가 되었어요" FontSize="17" FontWeight="SemiBold" TextAlignment="Center" TextWrapping="Wrap"/><TextBlock x:Name="MessageText" Text="구독 주소를 입력해 서버를 불러오세요." Foreground="{StaticResource MutedBrush}" LineHeight="19" TextWrapping="Wrap" TextAlignment="Center" Margin="0,7,0,0" MinHeight="38"/></StackPanel>
+                    <TextBlock Grid.Row="3" Text="끄면 이전 네트워크 설정으로 복원합니다." Foreground="{StaticResource MutedBrush}" FontSize="11" TextWrapping="Wrap" TextAlignment="Center" Margin="0,12,0,0"/>
+                </Grid>
+            </Border>
+            <Border Grid.Column="2" Background="#111E30" BorderBrush="#24334A" BorderThickness="1" CornerRadius="18" Padding="21,17">
+                <Grid><Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
+                    <StackPanel><TextBlock Text="연결 방식" FontSize="14" FontWeight="SemiBold"/><ComboBox x:Name="ConnectionModeBox" SelectedIndex="0" Margin="0,7,0,0" SelectionChanged="ConnectionModeBox_SelectionChanged" AutomationProperties.Name="VPN 연결 방식"><ComboBoxItem Content="앱 프록시 · 관리자 권한 없음"/><ComboBoxItem Content="전체 시스템 TUN · 관리자 권한 필요"/></ComboBox><TextBlock x:Name="ConnectionModeHint" Text="프록시 사용 앱의 TCP만 적용 · UDP/게임은 일반 통신" Foreground="{StaticResource MutedBrush}" FontSize="11" TextWrapping="Wrap" LineHeight="17" Margin="0,6,0,0"/></StackPanel>
+                    <StackPanel Grid.Row="1" Margin="0,13,0,0"><TextBlock Text="연결할 서버" FontSize="14" FontWeight="SemiBold"/>
+                        <ComboBox x:Name="ServerBox" Margin="0,7,0,0" DisplayMemberPath="DisplayName" SelectionChanged="ServerBox_SelectionChanged" AutomationProperties.Name="VPN 서버 선택" ToolTip="남은 사용량 → 일본 → 중국·홍콩 → 싱가포르 → 기타 순서"><ComboBox.ItemContainerStyle><Style TargetType="ComboBoxItem" BasedOn="{StaticResource {x:Type ComboBoxItem}}"><Setter Property="IsEnabled" Value="{Binding IsConnectable}"/><Style.Triggers><Trigger Property="IsEnabled" Value="False"><Setter Property="Opacity" Value="0.58"/></Trigger></Style.Triggers></Style></ComboBox.ItemContainerStyle></ComboBox>
+                        <TextBlock x:Name="ServerHint" Text="아직 불러온 서버가 없습니다." Foreground="{StaticResource MutedBrush}" FontSize="11" TextWrapping="Wrap" LineHeight="17" Margin="0,6,0,0"/><TextBlock x:Name="ServerRegionText" Text="연결할 서버를 선택하세요." Foreground="#C7D3E2" FontSize="11" TextWrapping="Wrap" Margin="0,4,0,0"/>
+                    </StackPanel>
+                    <StackPanel Grid.Row="2" Margin="0,13,0,0"><TextBlock Text="HTTPS 구독 주소" FontSize="14" FontWeight="SemiBold"/><Grid Margin="0,7,0,0"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions><PasswordBox x:Name="SubscriptionBox" Background="#0D1929" Foreground="#EDF3F8" BorderBrush="#34455E" BorderThickness="1" Padding="10,10" FontSize="13" PasswordChar="●" AutomationProperties.Name="구독 주소 (숨김)" ToolTip="구독 주소는 화면에서 숨겨집니다"/><Button x:Name="RefreshButton" Grid.Column="1" Content="불러오기" Click="RefreshButton_Click" Padding="13,9" Margin="8,0,0,0" Background="#69E3C2" Foreground="#102C2A" BorderBrush="#69E3C2"/></Grid></StackPanel>
+                </Grid>
+            </Border>
+        </Grid>
+        <Border Grid.Row="3" Background="#111E30" BorderBrush="#24334A" BorderThickness="1" CornerRadius="12" Padding="16,13" Margin="0,15,0,0"><Grid><Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions><StackPanel VerticalAlignment="Top" Margin="0,0,15,0"><Button x:Name="IpButton" Content="VPN 출구 · 국가 확인" Click="IpButton_Click" Padding="13,9" ToolTip="사용자의 사이트 규칙과 독립적으로 실제 VPN 출구 국가를 확인합니다"/><Button x:Name="TestButton" Content="연결 테스트" Click="TestButton_Click" Padding="13,8" Margin="0,7,0,0"/></StackPanel><StackPanel Grid.Column="1" VerticalAlignment="Center"><TextBlock x:Name="IpResultText" Text="연결 후 실제 VPN IP·국가를 자동 확인합니다." Foreground="#C7D3E2" FontSize="12" TextWrapping="Wrap" LineHeight="19" MinHeight="58"/><TextBlock x:Name="TestResultText" Text="연결 후 확인할 수 있어요" Foreground="{StaticResource MutedBrush}" FontSize="11" TextWrapping="Wrap" Margin="0,5,0,0"/></StackPanel></Grid></Border>
+        <Grid Grid.Row="4" Margin="0,12,0,0"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions><TextBlock Text="공급자 앱·스크립트·루트 인증서를 설치하지 않습니다." Foreground="{StaticResource MutedBrush}" FontSize="11" VerticalAlignment="Center" TextWrapping="Wrap"/><Button Grid.Column="1" Content="보안 안내" Click="SecurityButton_Click" Padding="12,7" FontSize="11"/></Grid>
+    </Grid>
 </Window>

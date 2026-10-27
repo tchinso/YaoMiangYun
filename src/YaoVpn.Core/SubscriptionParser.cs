@@ -40,6 +40,7 @@ public static class SubscriptionParser
 
             var nodes = new List<VpnNode>();
             var seen = new HashSet<string>(StringComparer.Ordinal);
+            var seenInformation = new HashSet<string>(StringComparer.Ordinal);
             var rejected = 0;
             var index = 0;
             foreach (var item in outbounds.EnumerateArray())
@@ -54,7 +55,14 @@ public static class SubscriptionParser
                     var fields = Sanitize(item, out var protocol, out var server, out var port);
                     var name = OptionalString(item, "tag", 160) ?? $"{protocol.ToUpperInvariant()} {index}";
                     var node = CreateNode(fields, DisplayName(name), protocol, server, port);
-                    if (seen.Add(node.Id)) nodes.Add(node);
+                    // Providers often repeat a working outbound with a quota/expiry
+                    // label. That display-only row must not consume the real server's
+                    // identity and hide its Japan/other region label during de-duplication.
+                    if (ServerCatalog.IsInformation(node.DisplayName))
+                    {
+                        if (seenInformation.Add(node.DisplayName)) nodes.Add(node);
+                    }
+                    else if (seen.Add(node.Id)) nodes.Add(node);
                 }
                 catch (FormatException) { rejected++; }
             }

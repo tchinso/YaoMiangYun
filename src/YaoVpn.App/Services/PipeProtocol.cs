@@ -35,7 +35,13 @@ internal static class PipeProtocol
         if (length is <= 0 or > MaximumBytes) throw new IOException("Invalid message size.");
         var buffer = new byte[length];
         await stream.ReadExactlyAsync(buffer, token);
-        return JsonSerializer.Deserialize<PipeMessage>(buffer, new JsonSerializerOptions { MaxDepth = 16 })
-            ?? throw new IOException("Invalid message.");
+        try
+        {
+            var message = JsonSerializer.Deserialize<PipeMessage>(buffer, new JsonSerializerOptions { MaxDepth = 16 });
+            if (message == null || string.IsNullOrEmpty(message.Kind) || message.Kind.Length > 32 || message.Kind.Any(char.IsControl))
+                throw new IOException("Invalid message.");
+            return message;
+        }
+        catch (JsonException) { throw new IOException("Invalid message."); }
     }
 }

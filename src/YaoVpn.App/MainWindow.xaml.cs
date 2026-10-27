@@ -1,5 +1,5 @@
-using System.ComponentModel;
 using System.Collections.ObjectModel;
+using System.ComponentModel;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
@@ -25,11 +25,7 @@ public partial class MainWindow : Window
     private string? _errorMessage;
     private readonly ObservableCollection<TrafficRecord> _traffic = [];
     private readonly DispatcherTimer _trafficTimer;
-    private bool _loadingPolicy;
-    private sealed record DomainRule(string Domain, string Route)
-    {
-        public string Label => Domain + (Route == "vpn" ? "  → VPN" : "  → 일반 통신");
-    }
+    private TrafficRulesWindow? _rulesWindow;
 
     public MainWindow()
     {
@@ -37,21 +33,21 @@ public partial class MainWindow : Window
         _service = new VpnService();
         _status = _service.Status;
         _service.StatusChanged += Service_StatusChanged;
-        TrafficList.ItemsSource = _traffic;
         _trafficTimer = new DispatcherTimer(TimeSpan.FromMilliseconds(500), DispatcherPriority.Background,
             (_, _) => FlushTraffic(), Dispatcher);
-        ShowRoutingPolicy();
         UpdateControls();
     }
 
     private async void Window_Loaded(object sender, RoutedEventArgs e)
     {
-        await RunOperationAsync(cancellationToken => _service.RecoverProxyAsync(cancellationToken),
+        var recovered = await RunOperationAsync(cancellationToken => _service.RecoverProxyAsync(cancellationToken),
             "이전 프록시 설정 복원을 확인하지 못했습니다. OFF를 눌러 다시 복원해 주세요.");
+        // A second operation must not erase a recovery error or present ready-to-connect.
+        if (!recovered || _closing) return;
         await RunOperationAsync(async cancellationToken =>
         {
             await _service.LoadRoutingPolicyAsync(cancellationToken);
-            ShowRoutingPolicy();
+            _rulesWindow?.RefreshPolicy();
             var result = await _service.LoadSavedAsync(cancellationToken);
             if (_closing) return;
             SubscriptionBox.Password = _service.SavedUrl ?? string.Empty;
@@ -59,9 +55,41 @@ public partial class MainWindow : Window
         }, "저장된 구독을 불러오지 못했습니다. 구독 주소를 다시 입력해 주세요.");
     }
 
+    private void RulesWindowButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (_closing) return;
+        if (_rulesWindow == null)
+        {
+            var window = new TrafficRulesWindow(_service, _traffic, SavePolicyAsync, ClearTraffic) { Owner = this };
+            window.Closed += (_, _) => { if (ReferenceEquals(_rulesWindow, window)) _rulesWindow = null; };
+            _rulesWindow = window;
+        }
+        _rulesWindow.RefreshPolicy();
+        _rulesWindow.SetOwnerState(_working || _stopping || _needsDisconnect || _status.IsBusy, _closing, _status);
+        _rulesWindow.Show();
+        if (_rulesWindow.WindowState == WindowState.Minimized) _rulesWindow.WindowState = WindowState.Normal;
+        _rulesWindow.Activate();
+    }
+
+    private Task<bool> SavePolicyAsync(RoutingPolicy policy)
+    {
+        if (_needsDisconnect || _stopping) return Task.FromResult(false);
+        return RunOperationAsync(async cancellationToken =>
+        {
+            await _service.SaveRoutingPolicyAsync(RoutingPolicy.Validate(policy), cancellationToken);
+        }, "사이트 규칙을 저장하지 못했습니다.");
+    }
+
+    private void ClearTraffic()
+    {
+        if (_closing) return;
+        _service.ClearTraffic();
+        _traffic.Clear();
+    }
+
     private async void RefreshButton_Click(object sender, RoutedEventArgs e)
     {
-        if (_working || _stopping || _closing || _status.IsConnected) return;
+        if (_working || _stopping || _closing || _status.IsConnected || _needsDisconnect) return;
         var url = SubscriptionBox.Password.Trim();
         if (string.IsNullOrWhiteSpace(url))
         {
@@ -70,12 +98,11 @@ public partial class MainWindow : Window
             SubscriptionBox.Focus();
             return;
         }
-
         await RunOperationAsync(async cancellationToken =>
         {
             var result = await _service.LoadSubscriptionAsync(url, cancellationToken);
             if (!_closing) SetServers(result);
-        }, "구독을 불러오지 못했습니다. HTTPS 주소와 네트워크 상태를 확인해 주세요.");
+        }, "구독을 불러오지 못했습니다. 구독 주소·만료 여부·네트워크 상태를 확인해 주세요.");
     }
 
     private async void PowerButton_Click(object sender, RoutedEventArgs e)
@@ -88,14 +115,18 @@ public partial class MainWindow : Window
             finally { _stopTask = null; }
             return;
         }
-
-        if (_working || ServerBox.SelectedItem is not VpnNode node) return;
+        if (_working || ServerBox.SelectedItem is not ServerEntry { IsConnectable: true } entry) return;
         _powerRequested = true;
-        TestResultText.Text = "연결 후 확인할 수 있어요";
-        IpResultText.Text = "IP 비교는 연결 후 확인할 수 있어요";
+        TestResultText.Text = "실제 VPN 연결을 확인하고 있어요…";
+        IpResultText.Text = "연결 후 실제 VPN IP·국가를 자동 확인합니다.";
         var mode = ConnectionModeBox.SelectedIndex == 1 ? ConnectionMode.SystemTun : ConnectionMode.AppProxy;
-        await RunOperationAsync(cancellationToken => _service.ConnectAsync(node, mode, cancellationToken),
-            "VPN 연결을 완료하지 못했습니다. 다른 서버를 선택하거나 네트워크 상태를 확인해 주세요.");
+        await RunOperationAsync(async cancellationToken =>
+        {
+            await _service.ConnectAsync(entry.Node, mode, cancellationToken);
+            if (!_service.Status.IsConnected || _closing) return;
+            TestResultText.Text = "VPN HTTPS 연결 확인 완료";
+            await UpdateIpResultAsync(cancellationToken);
+        }, "VPN 연결을 완료하지 못했습니다. 다른 서버를 선택하거나 네트워크 상태를 확인해 주세요.");
         if (!_status.IsConnected) _powerRequested = false;
         UpdateControls();
     }
@@ -104,31 +135,45 @@ public partial class MainWindow : Window
     {
         if (ConnectionModeHint == null) return;
         ConnectionModeHint.Text = ConnectionModeBox.SelectedIndex == 1
-            ? "IPv4·IPv6 시스템 통신에 사이트 규칙을 적용합니다. UDP·게임도 포함하며, 코어가 관리자 권한으로 실행됩니다."
-            : "시스템 프록시를 따르는 앱의 TCP만 적용됩니다. UDP·게임·프록시를 무시하는 앱은 일반 통신입니다.";
+            ? "전체 시스템 IPv4·IPv6/UDP 적용 · 관리자 권한 필요"
+            : "프록시 사용 앱의 TCP만 적용 · UDP/게임은 일반 통신";
     }
 
     private async void TestButton_Click(object sender, RoutedEventArgs e)
     {
         if (_working || _stopping || _closing || !_status.IsConnected) return;
-        TestResultText.Text = "응답을 확인하고 있어요…";
+        TestResultText.Text = "VPN HTTPS 응답을 확인하고 있어요…";
         await RunOperationAsync(async cancellationToken =>
         {
             var succeeded = await _service.ProbeAsync(cancellationToken);
-            if (!_closing)
-                TestResultText.Text = succeeded ? "인터넷 응답 확인 완료" : "인터넷 응답을 확인하지 못했어요";
+            if (!_closing) TestResultText.Text = succeeded ? "VPN HTTPS 연결 확인 완료" : "VPN HTTPS 응답을 확인하지 못했어요";
         }, "연결 테스트를 완료하지 못했습니다. 잠시 후 다시 시도해 주세요.");
     }
 
     private async void IpButton_Click(object sender, RoutedEventArgs e)
     {
         if (_working || _stopping || _closing || !_status.IsConnected) return;
-        IpResultText.Text = "HTTPS로 현재 공인 IP를 확인하고 있어요…";
-        await RunOperationAsync(async cancellationToken =>
+        await RunOperationAsync(UpdateIpResultAsync, "VPN 출구 확인을 완료하지 못했습니다.");
+    }
+
+    private async Task UpdateIpResultAsync(CancellationToken cancellationToken)
+    {
+        IpResultText.Text = "HTTPS로 실제 VPN 출구·국가를 확인하고 있어요…";
+        try
         {
             var result = await _service.CheckIpAsync(cancellationToken);
-            if (!_closing) IpResultText.Text = result.DisplayText;
-        }, "공인 IP 확인을 완료하지 못했습니다.");
+            if (!_closing && _service.Status.IsConnected)
+            {
+                IpResultText.Text = result.DisplayText;
+                IpResultText.Foreground = new SolidColorBrush(result.HasCountryMismatch
+                    ? Color.FromRgb(0xFF, 0xBD, 0xA6) : Color.FromRgb(0xC7, 0xD3, 0xE2));
+            }
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
+        catch
+        {
+            if (!_closing) IpResultText.Text = "VPN 연결은 유지되지만 출구 국가를 확인하지 못했습니다. 국가 확인을 다시 눌러 주세요.";
+        }
     }
 
     private void FlushTraffic()
@@ -141,97 +186,34 @@ public partial class MainWindow : Window
         }
     }
 
-    private void TrafficList_SelectionChanged(object sender, SelectionChangedEventArgs e)
-    {
-        if (TrafficList.SelectedItem is TrafficRecord { IsDomain: true } record) DomainBox.Text = record.Host;
-    }
-
-    private void ClearTrafficButton_Click(object sender, RoutedEventArgs e)
-    {
-        _service.ClearTraffic();
-        _traffic.Clear();
-    }
-
-    private void ShowRoutingPolicy()
-    {
-        _loadingPolicy = true;
-        try
-        {
-            var policy = _service.CurrentRoutingPolicy;
-            RoutingModeBox.SelectedIndex = policy.DefaultRoute == "vpn" ? 0 : 1;
-            RuleList.ItemsSource = policy.VpnDomains.Select(domain => new DomainRule(domain, "vpn"))
-                .Concat(policy.DirectDomains.Select(domain => new DomainRule(domain, "direct"))).OrderBy(rule => rule.Domain).ToArray();
-        }
-        finally { _loadingPolicy = false; }
-    }
-
-    private async void RoutingModeBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
-    {
-        if (_service == null || _loadingPolicy || _working || _closing || _stopping) return;
-        var policy = _service.CurrentRoutingPolicy with { DefaultRoute = RoutingModeBox.SelectedIndex == 1 ? "direct" : "vpn" };
-        await SavePolicyAsync(policy);
-    }
-
-    private async void VpnRuleButton_Click(object sender, RoutedEventArgs e) => await AddDomainRuleAsync("vpn");
-    private async void DirectRuleButton_Click(object sender, RoutedEventArgs e) => await AddDomainRuleAsync("direct");
-
-    private async Task AddDomainRuleAsync(string route)
-    {
-        if (_working || _closing || _stopping) return;
-        string domain;
-        try { domain = RoutingPolicy.NormalizeDomain(DomainBox.Text.Trim()); }
-        catch (FormatException e) { RoutingHint.Text = e.Message; DomainBox.Focus(); return; }
-        var policy = _service.CurrentRoutingPolicy;
-        var vpn = policy.VpnDomains.Where(item => item != domain).ToList();
-        var direct = policy.DirectDomains.Where(item => item != domain).ToList();
-        (route == "vpn" ? vpn : direct).Add(domain);
-        await SavePolicyAsync(new(policy.DefaultRoute, vpn.ToArray(), direct.ToArray()));
-    }
-
-    private async void RemoveRuleButton_Click(object sender, RoutedEventArgs e)
-    {
-        if (_working || _closing || _stopping || RuleList.SelectedItem is not DomainRule selected) return;
-        var policy = _service.CurrentRoutingPolicy;
-        await SavePolicyAsync(new(policy.DefaultRoute, policy.VpnDomains.Where(domain => domain != selected.Domain).ToArray(),
-            policy.DirectDomains.Where(domain => domain != selected.Domain).ToArray()));
-    }
-
-    private async Task SavePolicyAsync(RoutingPolicy policy)
-    {
-        try { policy = RoutingPolicy.Validate(policy); }
-        catch (FormatException e) { RoutingHint.Text = e.Message; ShowRoutingPolicy(); return; }
-        await RunOperationAsync(async cancellationToken =>
-        {
-            await _service.SaveRoutingPolicyAsync(policy, cancellationToken);
-            ShowRoutingPolicy();
-            RoutingHint.Text = _status.IsConnected ? "저장했습니다. OFF → ON 후 적용됩니다." : "저장했습니다. 다음 연결부터 적용됩니다.";
-        }, "사이트 규칙을 저장하지 못했습니다.");
-        ShowRoutingPolicy();
-    }
-
     private void ServerBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
-        // Selection changes can fire before the constructor has created the service.
-        if (_service is not null) UpdateControls();
+        if (_service is null) return;
+        if (ServerBox.SelectedItem is ServerEntry entry)
+            ServerRegionText.Text = entry.IsConnectable
+                ? $"공급자 표시: {ServerCatalog.CountryName(entry.CountryCode)} · {entry.Node.Protocol.ToUpperInvariant()}"
+                : "남은 사용량·구독 정보입니다. 연결 대상으로 선택할 수 없습니다.";
+        else ServerRegionText.Text = "연결할 서버를 선택하세요.";
+        UpdateControls();
     }
 
     private void SetServers(SubscriptionResult result)
     {
-        var previousId = (ServerBox.SelectedItem as VpnNode)?.Id;
-        ServerBox.ItemsSource = result.Nodes;
-        ServerBox.SelectedItem = result.Nodes.FirstOrDefault(node => node.Id == previousId)
-                                 ?? result.Nodes.FirstOrDefault();
-        ServerHint.Text = result.Nodes.Count == 0
-            ? "연결 가능한 서버가 없습니다. 구독을 확인해 주세요."
-            : $"사용 가능한 서버 {result.Nodes.Count}개";
-        if (result.RejectedCount > 0)
-            ServerHint.Text += $" · 보안 조건 미충족 / 미지원 {result.RejectedCount}개 제외";
+        var previousId = (ServerBox.SelectedItem as ServerEntry)?.Node.Id;
+        var entries = ServerCatalog.Create(result.Nodes);
+        ServerBox.ItemsSource = entries;
+        ServerBox.SelectedItem = ServerCatalog.SelectDefault(entries, previousId);
+        var count = entries.Count(entry => entry.IsConnectable);
+        ServerHint.Text = count == 0 ? "연결 가능한 서버가 없습니다. 구독을 확인해 주세요."
+            : $"연결 가능 {count}개 · 일본 우선 정렬";
+        if (result.RejectedCount > 0) ServerHint.Text += $" · 보안 조건 미충족 / 미지원 {result.RejectedCount}개 제외";
         TestResultText.Text = "연결 후 확인할 수 있어요";
+        IpResultText.Text = "연결 후 실제 VPN IP·국가를 자동 확인합니다.";
     }
 
-    private async Task RunOperationAsync(Func<CancellationToken, Task> action, string failureMessage)
+    private async Task<bool> RunOperationAsync(Func<CancellationToken, Task> action, string failureMessage)
     {
-        if (_working || _closing) return;
+        if (_working || _closing || _stopping) return false;
         _working = true;
         _errorMessage = null;
         using var cancellation = new CancellationTokenSource();
@@ -241,14 +223,13 @@ public partial class MainWindow : Window
         {
             _activeTask = action(cancellation.Token);
             await _activeTask;
+            return true;
         }
-        catch (OperationCanceledException) when (cancellation.IsCancellationRequested)
-        {
-            // Turning OFF or closing the window intentionally cancels the current operation.
-        }
-        catch (Exception)
+        catch (OperationCanceledException) when (cancellation.IsCancellationRequested) { return false; }
+        catch
         {
             if (!_closing && !_stopping) _errorMessage = failureMessage;
+            return false;
         }
         finally
         {
@@ -271,29 +252,18 @@ public partial class MainWindow : Window
         UpdateControls();
         try
         {
-            // Complete the cancelled operation before disconnecting to avoid overlapping service calls.
-            var pendingOperation = _activeTask;
-            if (pendingOperation is not null)
-            {
-                try { await pendingOperation; }
-                catch (Exception) { /* The owning operation reports failures. */ }
-            }
+            if (_activeTask is { } pendingOperation) { try { await pendingOperation; } catch { } }
             await _service.DisconnectAsync();
             _needsDisconnect = false;
             TestResultText.Text = "연결 후 확인할 수 있어요";
-            IpResultText.Text = "연결 종료됨 · 다시 연결한 후 IP를 확인하세요";
+            IpResultText.Text = "연결 종료됨 · 다시 연결하면 실제 VPN 출구를 확인합니다.";
         }
-        catch (Exception)
+        catch
         {
             _needsDisconnect = true;
             if (!_closing) _errorMessage = "VPN 종료를 확인하지 못했습니다. 다시 OFF를 눌러 주세요.";
         }
-        finally
-        {
-            _stopping = false;
-            _status = _service.Status;
-            if (!_closing) UpdateControls();
-        }
+        finally { _stopping = false; _status = _service.Status; if (!_closing) UpdateControls(); }
     }
 
     private void Service_StatusChanged(VpnStatus status)
@@ -301,8 +271,7 @@ public partial class MainWindow : Window
         if (_closing) return;
         if (!Dispatcher.CheckAccess())
         {
-            if (!Dispatcher.HasShutdownStarted)
-                Dispatcher.BeginInvoke(new Action(() => ApplyStatus(status)));
+            if (!Dispatcher.HasShutdownStarted) Dispatcher.BeginInvoke(new Action(() => ApplyStatus(status)));
             return;
         }
         ApplyStatus(status);
@@ -314,7 +283,11 @@ public partial class MainWindow : Window
         _status = status;
         if (status.State == "CLEANUP-REQUIRED") _needsDisconnect = true;
         else if (!status.IsBusy && !status.IsConnected) _needsDisconnect = false;
-        if (!status.IsConnected && !status.IsBusy && !_working) _powerRequested = false;
+        if (!status.IsConnected && !status.IsBusy && !_working)
+        {
+            _powerRequested = false;
+            IpResultText.Text = "VPN 연결이 꺼져 있습니다. 출구 정보는 연결 후 다시 확인합니다.";
+        }
         UpdateControls();
     }
 
@@ -326,36 +299,34 @@ public partial class MainWindow : Window
         var mint = new SolidColorBrush(Color.FromRgb(0x69, 0xE3, 0xC2));
         var muted = new SolidColorBrush(Color.FromRgb(0x91, 0xA1, 0xB7));
         var iconBrush = connected ? mint : new SolidColorBrush(Color.FromRgb(0xA7, 0xB8, 0xCD));
-
-        PowerButton.IsEnabled = !_closing && !_stopping && (connectionActive || (!busy && ServerBox.SelectedItem is VpnNode));
+        PowerButton.IsEnabled = !_closing && !_stopping && (connectionActive || (!busy && ServerBox.SelectedItem is ServerEntry { IsConnectable: true }));
         PowerButton.Background = new SolidColorBrush(connected ? Color.FromRgb(0x17, 0x3B, 0x38) : Color.FromRgb(0x1A, 0x2B, 0x40));
         PowerButton.BorderBrush = connected ? mint : new SolidColorBrush(Color.FromRgb(0x41, 0x53, 0x6A));
-        PowerArc.Stroke = iconBrush;
-        PowerLine.Stroke = iconBrush;
-        PowerText.Foreground = iconBrush;
+        PowerArc.Stroke = iconBrush; PowerLine.Stroke = iconBrush; PowerText.Foreground = iconBrush;
         PowerText.Text = _stopping ? "종료 중" : _needsDisconnect ? "종료" : connected ? "ON" : _powerRequested ? "연결 중" : "OFF";
         System.Windows.Automation.AutomationProperties.SetName(PowerButton, connectionActive ? "VPN 끄기" : "VPN 켜기");
         PowerButton.ToolTip = connected || _needsDisconnect ? "VPN 연결 종료" : _powerRequested ? "연결 취소" : "선택한 서버로 VPN 연결";
-        StatusDot.Fill = connected ? mint : muted;
-        StatusLabel.Foreground = connected ? mint : muted;
+        StatusDot.Fill = connected ? mint : muted; StatusLabel.Foreground = connected ? mint : muted;
         StatusLabel.Text = _stopping ? "연결 종료 중" : _needsDisconnect ? "종료 확인 필요" : connected ? "VPN 연결됨" : _powerRequested ? "VPN 연결 중" : "VPN 꺼짐";
         ConnectionTitle.Text = _stopping ? "연결을 정리하고 있어요" : _needsDisconnect ? "연결 종료를 확인해 주세요" : connected ? "VPN에 연결되어 있어요" : _powerRequested ? "서버에 연결하고 있어요" : "연결할 준비가 되었어요";
-        MessageText.Text = _errorMessage ?? (_stopping ? "잠시만 기다려 주세요. 일반 인터넷 연결로 돌아갑니다."
-            : !string.IsNullOrWhiteSpace(_status.Message) ? _status.Message
-            : "구독 주소를 입력해 서버를 불러오세요.");
+        MessageText.Text = _errorMessage ?? (_stopping ? "잠시만 기다려 주세요. 이전 네트워크 설정으로 돌아갑니다." : _status.Message);
         MessageText.Foreground = _errorMessage is null ? muted : new SolidColorBrush(Color.FromRgb(0xFF, 0xBD, 0xA6));
         ServerBox.IsEnabled = !connected && !busy && !_closing;
         ConnectionModeBox.IsEnabled = !connected && !busy && !_closing;
         SubscriptionBox.IsEnabled = !connected && !busy && !_closing;
         RefreshButton.IsEnabled = !connected && !busy && !_closing;
-        RefreshButton.Content = _working && !_powerRequested && !connected ? "구독을 불러오는 중…" : "구독 불러오기 / 새로고침";
+        RefreshButton.Content = _working && !_powerRequested && !connected ? "불러오는 중…" : "불러오기";
         TestButton.IsEnabled = connected && !busy && !_closing;
         IpButton.IsEnabled = connected && !busy && !_closing;
-        RoutingModeBox.IsEnabled = !busy && !_closing;
-        DomainBox.IsEnabled = !busy && !_closing;
-        VpnRuleButton.IsEnabled = !busy && !_closing;
-        DirectRuleButton.IsEnabled = !busy && !_closing;
-        RemoveRuleButton.IsEnabled = !busy && !_closing;
+        RulesWindowButton.IsEnabled = !_closing;
+        _rulesWindow?.SetOwnerState(busy, _closing, _status);
+    }
+
+    private void SecurityButton_Click(object sender, RoutedEventArgs e)
+    {
+        MessageBox.Show(this, "공급자의 앱·스크립트·루트 인증서를 설치하지 않고 HTTPS 인증서를 검증합니다.\n\n" +
+            "비관리자 모드도 파일 접근을 격리하는 샌드박스는 아니며, 코어·Windows의 취약점을 완전히 배제할 수 없습니다.\n" +
+            "HTTP 통신은 공급자가 읽거나 바꿀 수 있습니다. 영구 킬 스위치는 없으며, 연결 종료 후 일반 통신으로 돌아갑니다.", "Yao VPN · 보안 안내", MessageBoxButton.OK, MessageBoxImage.Information);
     }
 
     private async void Window_Closing(object? sender, CancelEventArgs e)
@@ -368,26 +339,14 @@ public partial class MainWindow : Window
         _operationCancellation?.Cancel();
         _service.StatusChanged -= Service_StatusChanged;
         UpdateControls();
-        var cleanupSucceeded = false;
         try
         {
-            var pendingOperation = _activeTask;
-            if (pendingOperation is not null)
-            {
-                try { await pendingOperation; }
-                catch (Exception) { /* Closing still needs to release the service. */ }
-            }
-            var pendingStop = _stopTask;
-            if (pendingStop is not null)
-            {
-                try { await pendingStop; }
-                catch (Exception) { /* Dispose is still required if disconnection failed. */ }
-            }
-            await _service.DisconnectAsync();
+            if (_activeTask is { } active) { try { await active; } catch { } }
+            if (_rulesWindow?.PendingSave is { } save) { try { await save; } catch { } }
+            if (_stopTask is { } stop) { try { await stop; } catch { } }
             await _service.DisposeAsync();
-            cleanupSucceeded = true;
         }
-        catch (Exception)
+        catch
         {
             _closing = false;
             _trafficTimer.Start();
@@ -396,16 +355,19 @@ public partial class MainWindow : Window
             _status = _service.Status;
             _errorMessage = "VPN 종료를 확인하지 못했습니다. OFF를 다시 누른 뒤 앱을 종료해 주세요.";
             UpdateControls();
-            MessageBox.Show(this, "VPN 종료를 확인하지 못해 앱을 열어 두었습니다. OFF를 다시 눌러 종료를 시도해 주세요.",
-                "Yao VPN", MessageBoxButton.OK, MessageBoxImage.Warning);
+            MessageBox.Show(this, "VPN 종료를 확인하지 못해 앱을 열어 두었습니다. OFF를 다시 눌러 종료를 시도해 주세요.", "Yao VPN", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
         }
-        finally
+        // OFF cleanup can complete synchronously. Never close this window or its
+        // owned window recursively from the original Closing event. UI teardown
+        // also stays outside the network-cleanup catch so a UI failure cannot be
+        // misreported as a tunnel/proxy restoration failure.
+        _allowClose = true;
+        _ = Dispatcher.BeginInvoke(new Action(() =>
         {
-            if (cleanupSucceeded)
-            {
-                _allowClose = true;
-                Close();
-            }
-        }
+            _rulesWindow?.CloseWithOwner();
+            _rulesWindow = null;
+            Close();
+        }), DispatcherPriority.Normal);
     }
 }

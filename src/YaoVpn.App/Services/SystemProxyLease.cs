@@ -131,6 +131,23 @@ internal sealed class SystemProxyLease : IDisposable
         }
     }
 
+    internal bool IsCurrent
+    {
+        get { lock (sync) return !disposed && Equivalent(ReadCurrent(), record.Applied); }
+    }
+
+    internal void ReleaseFailedStartupForRecovery()
+    {
+        lock (sync)
+        {
+            if (disposed) return;
+            // The factory cannot return this lease to its caller after startup failed.
+            // Preserve its DPAPI record, but do not strand an unreachable exclusive lock.
+            disposed = true;
+            ownership.Dispose();
+        }
+    }
+
     internal static ProxyState ForPort(int port)
     {
         if (port is < 1 or > 65535) throw new ArgumentOutOfRangeException(nameof(port));

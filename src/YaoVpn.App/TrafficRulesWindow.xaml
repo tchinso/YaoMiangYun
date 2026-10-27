@@ -1,0 +1,35 @@
+<Window x:Class="YaoVpn.App.TrafficRulesWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Yao VPN · 사이트 규칙과 통신 로그" Width="1120" Height="720" MinWidth="980" MinHeight="650"
+        WindowStartupLocation="CenterOwner" Background="#0B1422" Foreground="#EDF3F8"
+        FontFamily="Malgun Gothic, Segoe UI" FontSize="13" Closing="Window_Closing">
+    <Window.Resources><ResourceDictionary><ResourceDictionary.MergedDictionaries><ResourceDictionary Source="UiTheme.xaml"/></ResourceDictionary.MergedDictionaries></ResourceDictionary></Window.Resources>
+    <Grid Margin="24,22,24,18">
+        <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+        <Grid Margin="0,0,0,17"><StackPanel><TextBlock Text="사이트 규칙 · 통신 로그" FontSize="23" FontWeight="SemiBold"/><TextBlock x:Name="ConnectionStateText" Text="VPN 꺼짐 · 규칙은 다음 연결부터 적용됩니다." Foreground="{StaticResource MutedBrush}" TextWrapping="Wrap" FontSize="11" Margin="0,6,0,0"/></StackPanel><Button Content="닫기" Click="HideButton_Click" HorizontalAlignment="Right" VerticalAlignment="Top" Padding="14,8"/></Grid>
+        <Grid Grid.Row="1"><Grid.ColumnDefinitions><ColumnDefinition Width="380"/><ColumnDefinition Width="18"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+            <Border Background="#111E30" BorderBrush="#24334A" BorderThickness="1" CornerRadius="14" Padding="18">
+                <Grid><Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+                    <StackPanel><TextBlock Text="사이트별 VPN / 일반 통신" FontSize="16" FontWeight="SemiBold"/><TextBlock Text="나머지 사이트" Margin="0,13,0,7"/><ComboBox x:Name="RoutingModeBox" SelectionChanged="RoutingModeBox_SelectionChanged" AutomationProperties.Name="기본 통신 경로"><ComboBoxItem Content="VPN 사용 · 지정한 사이트만 일반 통신"/><ComboBoxItem Content="일반 통신 · 지정한 사이트만 VPN 사용"/></ComboBox><TextBlock Text="도메인과 하위 도메인에 적용하며, 더 구체적인 도메인이 우선합니다." Foreground="{StaticResource MutedBrush}" FontSize="11" TextWrapping="Wrap" LineHeight="17" Margin="0,8,0,0"/></StackPanel>
+                    <TextBox x:Name="DomainBox" Grid.Row="1" Background="#0D1929" Foreground="#EDF3F8" BorderBrush="#34455E" Padding="10,9" VerticalContentAlignment="Center" MaxLength="253" Margin="0,13,0,0" AutomationProperties.Name="사이트 도메인" ToolTip="example.com 형태로 입력하거나 로그에서 도메인을 선택하세요"/>
+                    <Grid Grid.Row="2" Margin="0,8,0,11"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="8"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions><Button x:Name="VpnRuleButton" Content="VPN으로" Click="VpnRuleButton_Click" Padding="12,9"/><Button x:Name="DirectRuleButton" Grid.Column="2" Content="일반 통신으로" Click="DirectRuleButton_Click" Padding="12,9"/></Grid>
+                    <ListBox x:Name="RuleList" Grid.Row="3" MinHeight="110" Background="#0D1929" Foreground="#EDF3F8" BorderBrush="#34455E" DisplayMemberPath="Label" AutomationProperties.Name="저장된 사이트 규칙" ScrollViewer.HorizontalScrollBarVisibility="Auto"/>
+                    <Button x:Name="RemoveRuleButton" Grid.Row="4" Content="선택 규칙 삭제" Click="RemoveRuleButton_Click" HorizontalAlignment="Left" Padding="12,8" Margin="0,10,0,0"/>
+                    <TextBlock x:Name="RoutingHint" Grid.Row="5" Text="규칙은 저장되며 다음 VPN 연결부터 적용됩니다." Foreground="{StaticResource MutedBrush}" FontSize="11" TextWrapping="Wrap" LineHeight="18" Margin="0,10,0,0" MinHeight="36"/>
+                </Grid>
+            </Border>
+            <Border Grid.Column="2" Background="#111E30" BorderBrush="#24334A" BorderThickness="1" CornerRadius="14" Padding="18">
+                <Grid><Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+                    <StackPanel Margin="0,0,0,12"><TextBlock Text="통신 로그 · 연결 시도" FontSize="16" FontWeight="SemiBold"/><TextBlock Text="이 앱의 코어를 지난 연결만 보입니다. 도메인 행을 선택하면 왼쪽 입력란에 복사됩니다." Foreground="{StaticResource MutedBrush}" FontSize="11" TextWrapping="Wrap" LineHeight="18" Margin="0,8,0,0"/></StackPanel>
+                    <ListView x:Name="TrafficList" Grid.Row="1" Background="#0D1929" Foreground="#EDF3F8" BorderBrush="#34455E" SelectionChanged="TrafficList_SelectionChanged" ScrollViewer.HorizontalScrollBarVisibility="Auto" AutomationProperties.Name="통신 연결 시도 로그" VirtualizingPanel.IsVirtualizing="True" VirtualizingPanel.VirtualizationMode="Recycling">
+                        <ListView.View><GridView><GridViewColumn Header="시간" Width="65" DisplayMemberBinding="{Binding DisplayTime}"/><GridViewColumn Header="도메인 / IP" Width="210" DisplayMemberBinding="{Binding Host}"/><GridViewColumn Header="포트" Width="45" DisplayMemberBinding="{Binding Port}"/><GridViewColumn Header="통신" Width="47" DisplayMemberBinding="{Binding Network}"/><GridViewColumn Header="경로" Width="77" DisplayMemberBinding="{Binding RouteLabel}"/></GridView></ListView.View>
+                    </ListView>
+                    <Button x:Name="ClearTrafficButton" Grid.Row="2" Content="로그 지우기" Click="ClearTrafficButton_Click" HorizontalAlignment="Left" Padding="12,8" Margin="0,10,0,0"/>
+                    <TextBlock Grid.Row="3" Text="최근 300개 · 메모리에만 보관합니다. 연결 성공 여부나 패킷 본문을 기록하는 기능은 아닙니다." Foreground="{StaticResource MutedBrush}" FontSize="11" TextWrapping="Wrap" LineHeight="18" Margin="0,10,0,0"/>
+                </Grid>
+            </Border>
+        </Grid>
+        <TextBlock Grid.Row="2" Text="CDN·로그인 등 별도 도메인은 따로 지정하세요. 도메인을 알 수 없는 연결은 기본 경로를 따릅니다. 연결 확인과 VPN 출구 진단은 앱의 고정 VPN 경로를 사용합니다." Foreground="{StaticResource MutedBrush}" FontSize="11" TextWrapping="Wrap" LineHeight="17" Margin="0,13,0,0"/>
+    </Grid>
+</Window>

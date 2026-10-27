@@ -39,6 +39,7 @@ public sealed class UserProxySession : IAsyncDisposable
     public Uri ProxyAddress { get; }
     public Task Exit { get; }
     internal int CoreProcessId => process.Id;
+    internal bool HasCurrentSystemProxy => lease?.IsCurrent == true;
 
     public static Task RecoverAsync(CancellationToken cancellationToken = default) => SystemProxyLease.RecoverAsync(cancellationToken);
     public static Task RecoverProxyAsync(CancellationToken cancellationToken = default) => RecoverAsync(cancellationToken);
@@ -91,7 +92,18 @@ public sealed class UserProxySession : IAsyncDisposable
         }
         catch
         {
-            if (session != null) await session.DisposeAsync().ConfigureAwait(false);
+            if (session != null)
+            {
+                try { await session.DisposeAsync().ConfigureAwait(false); }
+                catch
+                {
+                    // Startup never handed this object to VpnService. Recovery must
+                    // be able to acquire the persisted lease even if restoration failed.
+                    session.lease?.ReleaseFailedStartupForRecovery();
+                    session.lease = null;
+                    throw;
+                }
+            }
             else
             {
                 try

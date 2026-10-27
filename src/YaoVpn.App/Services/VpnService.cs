@@ -21,6 +21,10 @@ public sealed class VpnService : IAsyncDisposable
     public VpnService() : this(Environment.ProcessPath ?? throw new IOException("Application path unavailable.")) { }
     internal VpnService(string applicationExecutable) { this.applicationExecutable = Path.GetFullPath(applicationExecutable); }
     private readonly SemaphoreSlim gate = new(1, 1);
+    private readonly object disposeSync = new();
+    private Task? disposal;
+    private volatile bool disposalInProgress;
+    private volatile bool disposed;
     private NamedPipeServerStream? pipe;
     private Process? broker;
     private Task? monitor;
@@ -30,16 +34,31 @@ public sealed class VpnService : IAsyncDisposable
     private string? terminalMessage;
     private readonly ConcurrentQueue<TrafficRecord> traffic = new();
     private string? beforeIp;
+    private RoutingPolicy? activePolicy;
     public event Action<VpnStatus>? StatusChanged;
     public VpnStatus Status { get; private set; } = new("OFF", "VPN이 꺼져 있습니다.", false, false);
     public string? SavedUrl { get; private set; }
     public RoutingPolicy CurrentRoutingPolicy { get; private set; } = RoutingPolicy.SelectedSites;
     public ConnectionMode? ActiveMode { get; private set; }
+    public string? ActiveServerId { get; private set; }
+    public string? ActiveServerName { get; private set; }
+    public string? AdvertisedCountryCode { get; private set; }
     private sealed record SavedSubscription(string Url, string Json);
+
+    private async Task EnterAsync(CancellationToken cancellationToken)
+    {
+        ObjectDisposedException.ThrowIf(disposed || disposalInProgress, this);
+        await gate.WaitAsync(cancellationToken);
+        if (disposed || disposalInProgress)
+        {
+            gate.Release();
+            throw new ObjectDisposedException(nameof(VpnService));
+        }
+    }
 
     public async Task LoadRoutingPolicyAsync(CancellationToken cancellationToken = default)
     {
-        await gate.WaitAsync(cancellationToken);
+        await EnterAsync(cancellationToken);
         try
         {
             var saved = await Task.Run(() => PrivateStorage.Load("routing.dpapi"), cancellationToken);
@@ -54,7 +73,7 @@ public sealed class VpnService : IAsyncDisposable
     public async Task SaveRoutingPolicyAsync(RoutingPolicy policy, CancellationToken cancellationToken = default)
     {
         policy = RoutingPolicy.Validate(policy);
-        await gate.WaitAsync(cancellationToken);
+        await EnterAsync(cancellationToken);
         try
         {
             await Task.Run(() => PrivateStorage.Save("routing.dpapi", JsonSerializer.Serialize(policy)), cancellationToken);
@@ -74,17 +93,29 @@ public sealed class VpnService : IAsyncDisposable
 
     public async Task<IpCheckResult> CheckIpAsync(CancellationToken cancellationToken = default)
     {
+        ObjectDisposedException.ThrowIf(disposed || disposalInProgress, this);
         var session = pipe;
         var proxy = proxySession;
+        var serverId = ActiveServerId;
+        var serverName = ActiveServerName;
+        var country = AdvertisedCountryCode;
         if ((session == null && proxy == null) || !Status.IsConnected) return new(beforeIp, null);
-        var address = await IpVerification.ReadAsync(cancellationToken, proxy?.ProxyAddress);
-        return new(beforeIp, ReferenceEquals(pipe, session) && ReferenceEquals(proxySession, proxy)
-            && Status.IsConnected ? address : null);
+        var currentPath = IpVerification.ReadAsync(cancellationToken, proxy?.ProxyAddress);
+        var vpnPath = IpVerification.ReadVpnAsync(cancellationToken, proxy?.ProxyAddress);
+        await Task.WhenAll(currentPath, vpnPath);
+        if (!ReferenceEquals(pipe, session) || !ReferenceEquals(proxySession, proxy) || ActiveServerId != serverId
+            || ActiveServerName != serverName || !Status.IsConnected || disposed || stopping) return new(beforeIp, null);
+        return new(beforeIp, await currentPath)
+        {
+            VpnEgress = await vpnPath,
+            AdvertisedCountryCode = country,
+            SelectedServerName = serverName
+        };
     }
 
     public async Task RecoverProxyAsync(CancellationToken cancellationToken = default)
     {
-        await gate.WaitAsync(cancellationToken);
+        await EnterAsync(cancellationToken);
         try { await UserProxySession.RecoverProxyAsync(cancellationToken); proxyRecoveryRequired = false; }
         catch { proxyRecoveryRequired = true; Set("CLEANUP-REQUIRED", "이전 프록시 설정 복원을 확인하지 못했습니다. OFF를 눌러 다시 복원하세요."); throw; }
         finally { gate.Release(); }
@@ -95,7 +126,7 @@ public sealed class VpnService : IAsyncDisposable
 
     public async Task<SubscriptionResult?> LoadSavedAsync(CancellationToken cancellationToken = default)
     {
-        await gate.WaitAsync(cancellationToken);
+        await EnterAsync(cancellationToken);
         try
         {
             var saved = await Task.Run(() => PrivateStorage.Load("subscription.dpapi"), cancellationToken);
@@ -105,16 +136,21 @@ public sealed class VpnService : IAsyncDisposable
             SavedUrl = data.Url;
             return result;
         }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
         catch { throw new InvalidOperationException("저장된 구독을 읽지 못했습니다. 구독 주소를 다시 불러와 주세요."); }
         finally { gate.Release(); }
     }
 
     public async Task<SubscriptionResult> LoadSubscriptionAsync(string url, CancellationToken cancellationToken = default)
     {
-        await gate.WaitAsync(cancellationToken);
+        await EnterAsync(cancellationToken);
+        if (pipe != null || proxySession != null || broker != null || proxyRecoveryRequired || Status.State == "CLEANUP-REQUIRED")
+        {
+            gate.Release();
+            throw new InvalidOperationException("VPN 연결과 설정 복원을 마친 뒤 구독을 갱신해 주세요.");
+        }
         try
         {
-            if (pipe != null || proxySession != null) throw new InvalidOperationException("VPN을 끈 뒤 구독을 갱신해 주세요.");
             if (!Uri.TryCreate(url.Trim(), UriKind.Absolute, out var uri) || uri.Scheme != "https" || uri.UserInfo.Length != 0 || uri.Fragment.Length != 0 || uri.IsLoopback || url.Length > 4096)
                 throw new InvalidOperationException("올바른 HTTPS 구독 주소를 입력해 주세요.");
             Set("OFF", "구독의 연결 정보를 확인하고 있습니다.", busy: true);
@@ -142,6 +178,8 @@ public sealed class VpnService : IAsyncDisposable
             Set("OFF", $"서버 {result.Nodes.Count}개를 불러왔습니다. 연결할 서버를 선택해 주세요.");
             return result;
         }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        { Set("OFF", "구독 갱신을 취소했습니다."); throw; }
         catch (InvalidOperationException) { Set("OFF", "구독을 불러오지 못했습니다."); throw; }
         catch { Set("OFF", "구독을 불러오지 못했습니다."); throw new InvalidOperationException("구독을 읽지 못했습니다. 주소·만료 여부·인터넷 연결을 확인해 주세요. HTTPS sing-box 형식만 지원합니다."); }
         finally { gate.Release(); }
@@ -157,16 +195,31 @@ public sealed class VpnService : IAsyncDisposable
     {
         if (!Enum.IsDefined(mode)) throw new ArgumentOutOfRangeException(nameof(mode));
         policy = RoutingPolicy.Validate(policy);
-        await gate.WaitAsync(cancellationToken);
+        node = SubscriptionParser.Revalidate(node);
+        if (ServerCatalog.IsInformation(node.DisplayName))
+            throw new InvalidOperationException("사용량·만료 안내 대신 실제 연결 서버를 선택해 주세요.");
+        await EnterAsync(cancellationToken);
+        if (Status.IsConnected)
+        {
+            try
+            {
+                if (!MatchesActiveConnection(node, mode, policy))
+                    throw new InvalidOperationException("다른 서버나 연결 방식으로 바꾸려면 먼저 OFF로 종료해 주세요.");
+                return;
+            }
+            finally { gate.Release(); }
+        }
         var failureStage = "ipc";
         try
         {
-            if (Status.IsConnected) return;
             if (broker != null || pipe != null || proxySession != null || monitor != null || Status.State == "CLEANUP-REQUIRED")
                 await StopInternalAsync();
-            node = SubscriptionParser.Revalidate(node);
             using (BinaryTrust.OpenVerifiedCore()) { }
             ActiveMode = mode;
+            ActiveServerId = node.Id;
+            ActiveServerName = node.DisplayName;
+            AdvertisedCountryCode = ServerCatalog.GetCountryCode(node.DisplayName);
+            activePolicy = policy;
             Set("CONNECTING", mode == ConnectionMode.AppProxy
                 ? "관리자 권한 없이 앱 프록시를 준비합니다."
                 : "Windows 관리자 권한을 승인하면 전체 시스템 TUN을 연결합니다.", busy: true);
@@ -238,6 +291,21 @@ public sealed class VpnService : IAsyncDisposable
         finally { gate.Release(); }
     }
 
+    private bool MatchesActiveConnection(VpnNode node, ConnectionMode mode, RoutingPolicy policy) =>
+        ActiveServerId == node.Id && ActiveServerName == node.DisplayName && ActiveMode == mode && activePolicy != null
+        && activePolicy.DefaultRoute == policy.DefaultRoute
+        && activePolicy.VpnDomains.SequenceEqual(policy.VpnDomains, StringComparer.Ordinal)
+        && activePolicy.DirectDomains.SequenceEqual(policy.DirectDomains, StringComparer.Ordinal);
+
+    private void ClearActiveConnection()
+    {
+        ActiveMode = null;
+        ActiveServerId = null;
+        ActiveServerName = null;
+        AdvertisedCountryCode = null;
+        activePolicy = null;
+    }
+
     private async Task CleanupFailedConnectionAsync(string message)
     {
         try { await StopInternalAsync(); Set("OFF", message); }
@@ -256,18 +324,43 @@ public sealed class VpnService : IAsyncDisposable
     {
         try
         {
-            await session.Exit;
+            var replaced = false;
+            while (!session.Exit.IsCompleted && !stopping)
+            {
+                await Task.WhenAny(session.Exit, Task.Delay(TimeSpan.FromSeconds(2))).ConfigureAwait(false);
+                if (stopping) return;
+                if (!session.Exit.IsCompleted && !session.HasCurrentSystemProxy) { replaced = true; break; }
+            }
             if (stopping) return;
-            terminalMessage = "proxy-exited";
+            terminalMessage = replaced ? "proxy-replaced" : "proxy-exited";
             Set("DISCONNECTING", "앱 프록시가 종료되어 이전 프록시 설정을 복원하고 있습니다.", busy: true);
             await session.DisposeAsync();
             proxyRecoveryRequired = false;
             if (ReferenceEquals(proxySession, session)) proxySession = null;
-            if (!stopping) Set("OFF", "앱 프록시가 종료되어 이전 프록시 설정을 복원했습니다.");
+            if (!stopping)
+            {
+                ClearActiveConnection();
+                Set("OFF", replaced ? "Windows 프록시 설정이 바뀌어 연결을 종료했습니다. 새 설정은 유지했습니다."
+                    : "앱 프록시가 종료되어 이전 프록시 설정을 복원했습니다.");
+            }
         }
         catch
         {
-            if (!stopping) Set("CLEANUP-REQUIRED", "앱 프록시 종료 후 설정 복원을 확인하지 못했습니다. OFF를 눌러 다시 복원하세요.");
+            // A Windows settings read can itself fail while the engine is still alive.
+            // Stop the exact session before reporting a recoverable cleanup state.
+            var cleaned = false;
+            try { await session.DisposeAsync(); cleaned = true; } catch { }
+            if (cleaned)
+            {
+                proxyRecoveryRequired = false;
+                if (ReferenceEquals(proxySession, session)) proxySession = null;
+                if (!stopping)
+                {
+                    ClearActiveConnection();
+                    Set("OFF", "Windows 프록시 상태를 확인하지 못해 연결을 종료하고 이전 설정을 복원했습니다.");
+                }
+            }
+            else if (!stopping) Set("CLEANUP-REQUIRED", "앱 프록시 종료 후 설정 복원을 확인하지 못했습니다. OFF를 눌러 다시 복원하세요.");
         }
     }
 
@@ -305,14 +398,16 @@ public sealed class VpnService : IAsyncDisposable
         else
         {
             terminalMessage = null;
+            ClearActiveConnection();
             Set("OFF", "VPN이 종료되었습니다. 일반 인터넷 연결로 돌아갑니다.");
         }
     }
 
     public async Task DisconnectAsync()
     {
+        if (disposed) return;
         await gate.WaitAsync();
-        try { Set("DISCONNECTING", "VPN을 끄고 네트워크를 복원합니다.", busy: true); await StopInternalAsync(); Set("OFF", "VPN이 꺼져 있습니다. 이전 네트워크 설정을 복원했습니다."); }
+        try { if (disposed) return; Set("DISCONNECTING", "VPN을 끄고 네트워크를 복원합니다.", busy: true); await StopInternalAsync(); Set("OFF", "VPN이 꺼져 있습니다. 이전 네트워크 설정을 복원했습니다."); }
         catch { Set("CLEANUP-REQUIRED", "연결 설정 복원을 확인하지 못했습니다. OFF를 눌러 다시 복원하세요."); throw; }
         finally { gate.Release(); }
     }
@@ -320,6 +415,7 @@ public sealed class VpnService : IAsyncDisposable
     private async Task StopInternalAsync()
     {
         stopping = true;
+        var requiresTunCleanup = ActiveMode == ConnectionMode.SystemTun || broker != null || pipe != null;
         var proxy = proxySession;
         if (proxy != null)
         {
@@ -360,10 +456,10 @@ public sealed class VpnService : IAsyncDisposable
         }
         session?.Dispose(); pipe = null;
         if (monitor != null) { await monitor; monitor = null; }
-        if (TunnelHealth.IsUp())
+        if (requiresTunCleanup && TunnelHealth.IsUp())
             throw new InvalidOperationException("터널 종료를 확인하지 못했습니다. OFF를 다시 누르거나 Windows 네트워크 상태를 확인해 주세요.");
         terminalMessage = null;
-        ActiveMode = null;
+        ClearActiveConnection();
     }
 
     public async Task<bool> ProbeAsync(CancellationToken cancellationToken = default)
@@ -390,7 +486,42 @@ public sealed class VpnService : IAsyncDisposable
         catch (Exception e) when (e is HttpRequestException or TaskCanceledException) { cancellationToken.ThrowIfCancellationRequested(); return false; }
     }
 
-    public async ValueTask DisposeAsync() { await DisconnectAsync(); gate.Dispose(); }
+    public ValueTask DisposeAsync()
+    {
+        lock (disposeSync)
+        {
+            if (disposal == null || disposal.IsFaulted)
+            {
+                disposalInProgress = true;
+                disposal = DisposeCoreAsync();
+            }
+            return new ValueTask(disposal);
+        }
+    }
+
+    private async Task DisposeCoreAsync()
+    {
+        await gate.WaitAsync();
+        try
+        {
+            Set("DISCONNECTING", "VPN을 끄고 네트워크를 복원합니다.", busy: true);
+            await StopInternalAsync();
+            disposed = true;
+            Set("OFF", "VPN이 꺼져 있습니다. 이전 네트워크 설정을 복원했습니다.");
+        }
+        catch
+        {
+            Set("CLEANUP-REQUIRED", "연결 설정 복원을 확인하지 못했습니다. OFF를 눌러 다시 복원하세요.");
+            throw;
+        }
+        finally
+        {
+            disposalInProgress = false;
+            // Pending callers must be released to observe the disposed state; disposing
+            // SemaphoreSlim while they wait can otherwise leave their tasks stranded.
+            gate.Release();
+        }
+    }
 
     [DllImport("kernel32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]

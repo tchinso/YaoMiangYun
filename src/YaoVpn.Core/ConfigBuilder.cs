@@ -7,6 +7,7 @@ namespace YaoVpn.Core;
 public static class ConfigBuilder
 {
     public const string VpnHealthHost = "connectivitycheck.gstatic.com";
+    public const string VpnDiagnosticHost = "one.one.one.one";
 
     public static string Build(VpnNode node, bool tun, int mixedPort = 0, RoutingPolicy? policy = null)
     {
@@ -51,8 +52,10 @@ public static class ConfigBuilder
         }
         // The application's HTTPS readiness probe must exercise the VPN even
         // when the user's default route and parent suffix both select direct.
-        routeRules.Add(new { domain = new[] { VpnHealthHost }, action = "route", outbound = "vpn" });
-        dnsRules.Add(new { domain = new[] { VpnHealthHost }, action = "route", server = "secure-dns" });
+        // This independent egress measurement must not accidentally measure a
+        // user-selected direct route at the general IP-check website.
+        routeRules.Add(new { domain = new[] { VpnHealthHost, VpnDiagnosticHost }, action = "route", outbound = "vpn" });
+        dnsRules.Add(new { domain = new[] { VpnHealthHost, VpnDiagnosticHost }, action = "route", server = "secure-dns" });
         // First match wins. A specific subdomain must override a parent suffix even
         // when the rules live in opposite user-selected groups.
         var suffixes = policy.VpnDomains.Select(domain => (Domain: domain, Route: "vpn"))
