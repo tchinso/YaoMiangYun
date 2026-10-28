@@ -3,12 +3,17 @@
     <OutputType>WinExe</OutputType>
     <TargetFramework>net10.0-windows</TargetFramework>
     <UseWPF>true</UseWPF>
+    <UseWindowsForms>true</UseWindowsForms>
     <AssemblyName>YaoVPN</AssemblyName>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <ApplicationIcon>Assets/AppIcon.ico</ApplicationIcon>
     <StartupObject>YaoVpn.App.Program</StartupObject>
     <Version>1.0.0</Version>
   </PropertyGroup>
+  <ItemGroup>
+    <Using Remove="System.Windows.Forms" />
+    <Using Remove="System.Drawing" />
+  </ItemGroup>
   <ItemGroup><ProjectReference Include="../YaoVpn.Core/YaoVpn.Core.csproj" /></ItemGroup>
   <ItemGroup><Resource Include="Assets/AppIcon.ico" /></ItemGroup>
   <ItemGroup>

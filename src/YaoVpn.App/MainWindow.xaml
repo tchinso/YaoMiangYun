@@ -4,7 +4,7 @@
         Title="Yao VPN" Icon="Assets/AppIcon.ico" Width="950" Height="760" MinWidth="860" MinHeight="720"
         WindowStartupLocation="CenterScreen" Background="#0B1422" Foreground="#EDF3F8"
         FontFamily="Malgun Gothic, Segoe UI" FontSize="13"
-        Loaded="Window_Loaded" Closing="Window_Closing">
+        Loaded="Window_Loaded" Closing="Window_Closing" StateChanged="Window_StateChanged">
     <Window.Resources><ResourceDictionary><ResourceDictionary.MergedDictionaries><ResourceDictionary Source="UiTheme.xaml"/></ResourceDictionary.MergedDictionaries></ResourceDictionary></Window.Resources>
     <Grid Margin="28,22,28,18">
         <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
@@ -33,7 +33,7 @@
             </Border>
             <Border Grid.Column="2" Background="#111E30" BorderBrush="#24334A" BorderThickness="1" CornerRadius="18" Padding="21,17">
                 <Grid><Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
-                    <StackPanel><TextBlock Text="연결 방식" FontSize="14" FontWeight="SemiBold"/><ComboBox x:Name="ConnectionModeBox" SelectedIndex="0" Margin="0,7,0,0" SelectionChanged="ConnectionModeBox_SelectionChanged" AutomationProperties.Name="VPN 연결 방식"><ComboBoxItem Content="앱 프록시 · 관리자 권한 없음"/><ComboBoxItem Content="전체 시스템 TUN · 관리자 권한 필요"/></ComboBox><TextBlock x:Name="ConnectionModeHint" Text="프록시 사용 앱의 TCP만 적용 · UDP/게임은 일반 통신" Foreground="{StaticResource MutedBrush}" FontSize="11" TextWrapping="Wrap" LineHeight="17" Margin="0,6,0,0"/></StackPanel>
+                    <StackPanel><TextBlock Text="연결 방식" FontSize="14" FontWeight="SemiBold"/><ComboBox x:Name="ConnectionModeBox" SelectedIndex="1" Margin="0,7,0,0" SelectionChanged="ConnectionModeBox_SelectionChanged" AutomationProperties.Name="VPN 연결 방식"><ComboBoxItem Content="앱 프록시 · 관리자 권한 없음"/><ComboBoxItem Content="전체 시스템 TUN · 관리자 권한 필요"/></ComboBox><TextBlock x:Name="ConnectionModeHint" Text="전체 시스템 IPv4·IPv6/UDP 적용 · 관리자 권한 필요" Foreground="{StaticResource MutedBrush}" FontSize="11" TextWrapping="Wrap" LineHeight="17" Margin="0,6,0,0"/></StackPanel>
                     <StackPanel Grid.Row="1" Margin="0,13,0,0"><TextBlock Text="연결할 서버" FontSize="14" FontWeight="SemiBold"/>
                         <ComboBox x:Name="ServerBox" Margin="0,7,0,0" DisplayMemberPath="DisplayName" SelectionChanged="ServerBox_SelectionChanged" AutomationProperties.Name="VPN 서버 선택" ToolTip="남은 사용량 → 일본 → 중국·홍콩 → 싱가포르 → 기타 순서"><ComboBox.ItemContainerStyle><Style TargetType="ComboBoxItem" BasedOn="{StaticResource {x:Type ComboBoxItem}}"><Setter Property="IsEnabled" Value="{Binding IsConnectable}"/><Style.Triggers><Trigger Property="IsEnabled" Value="False"><Setter Property="Opacity" Value="0.58"/></Trigger></Style.Triggers></Style></ComboBox.ItemContainerStyle></ComboBox>
                         <TextBlock x:Name="ServerHint" Text="아직 불러온 서버가 없습니다." Foreground="{StaticResource MutedBrush}" FontSize="11" TextWrapping="Wrap" LineHeight="17" Margin="0,6,0,0"/><TextBlock x:Name="ServerRegionText" Text="연결할 서버를 선택하세요." Foreground="#C7D3E2" FontSize="11" TextWrapping="Wrap" Margin="0,4,0,0"/>

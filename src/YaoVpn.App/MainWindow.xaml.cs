@@ -25,6 +25,8 @@ public partial class MainWindow : Window
     private string? _errorMessage;
     private readonly ObservableCollection<TrafficRecord> _traffic = [];
     private readonly DispatcherTimer _trafficTimer;
+    private readonly SystemTrayIcon _trayIcon;
+    private WindowState _restoreWindowState = WindowState.Normal;
     private TrafficRulesWindow? _rulesWindow;
 
     public MainWindow()
@@ -35,7 +37,34 @@ public partial class MainWindow : Window
         _service.StatusChanged += Service_StatusChanged;
         _trafficTimer = new DispatcherTimer(TimeSpan.FromMilliseconds(500), DispatcherPriority.Background,
             (_, _) => FlushTraffic(), Dispatcher);
+        _trayIcon = new SystemTrayIcon(RestoreFromTray, Close);
         UpdateControls();
+    }
+
+    private void Window_StateChanged(object? sender, EventArgs e)
+    {
+        if (_closing || _trayIcon is null) return;
+        if (WindowState == WindowState.Minimized)
+        {
+            _trayIcon.Visible = true;
+            Hide();
+        }
+        else _restoreWindowState = WindowState;
+    }
+
+    private void RestoreFromTray()
+    {
+        if (_closing) return;
+        WindowState = _restoreWindowState;
+        Show();
+        Activate();
+        _trayIcon.Visible = false;
+    }
+
+    protected override void OnClosed(EventArgs e)
+    {
+        _trayIcon.Dispose();
+        base.OnClosed(e);
     }
 
     private async void Window_Loaded(object sender, RoutedEventArgs e)
@@ -341,23 +370,9 @@ public partial class MainWindow : Window
         UpdateControls();
         try
         {
-            if (_activeTask is { } active) { try { await active; } catch { } }
-            if (_rulesWindow?.PendingSave is { } save) { try { await save; } catch { } }
-            if (_stopTask is { } stop) { try { await stop; } catch { } }
-            await _service.DisposeAsync();
+            await CleanupForCloseAsync().WaitAsync(TimeSpan.FromSeconds(45));
         }
-        catch
-        {
-            _closing = false;
-            _trafficTimer.Start();
-            _needsDisconnect = true;
-            _service.StatusChanged += Service_StatusChanged;
-            _status = _service.Status;
-            _errorMessage = "VPN 종료를 확인하지 못했습니다. OFF를 다시 누른 뒤 앱을 종료해 주세요.";
-            UpdateControls();
-            MessageBox.Show(this, "VPN 종료를 확인하지 못해 앱을 열어 두었습니다. OFF를 다시 눌러 종료를 시도해 주세요.", "Yao VPN", MessageBoxButton.OK, MessageBoxImage.Warning);
-            return;
-        }
+        catch (TimeoutException) { }
         // OFF cleanup can complete synchronously. Never close this window or its
         // owned window recursively from the original Closing event. UI teardown
         // also stays outside the network-cleanup catch so a UI failure cannot be
@@ -369,5 +384,17 @@ public partial class MainWindow : Window
             _rulesWindow = null;
             Close();
         }), DispatcherPriority.Normal);
+    }
+
+    private async Task CleanupForCloseAsync()
+    {
+        try
+        {
+            // Queue VPN cleanup immediately; the service serializes it with any
+            // cancelled connection/save. Observe late failures even after timeout.
+            var cleanup = _service.DisposeAsync().AsTask();
+            await Task.WhenAll(new[] { _activeTask, _rulesWindow?.PendingSave, _stopTask, cleanup }.OfType<Task>());
+        }
+        catch { }
     }
 }

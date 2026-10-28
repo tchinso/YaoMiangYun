@@ -15,6 +15,12 @@ public static class Program
     {
         try
         {
+            if (args is ["--window-lifecycle"])
+            {
+                await WindowLifecycleTests.RunAsync();
+                await TrayLifecycleTests.RunAsync();
+                return 0;
+            }
             if (args is ["--japan-diagnostic"])
             {
                 await JapanDiagnostics.RunAsync();
@@ -48,6 +54,8 @@ public static class Program
             ParserTests.Run();
             ServerCatalogTests.Run();
             await ServiceLifecycleTests.RunAsync();
+            await WindowLifecycleTests.RunAsync();
+            await TrayLifecycleTests.RunAsync();
             StorageSecurityTests.Run();
             EndpointSecurityTests.Run();
             ProxySessionTests.Run();
