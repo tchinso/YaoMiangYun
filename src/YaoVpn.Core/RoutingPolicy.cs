@@ -7,17 +7,19 @@ namespace YaoVpn.Core;
 public sealed record RoutingPolicy(string DefaultRoute, string[] VpnDomains, string[] DirectDomains)
 {
     public const int MaximumRules = 64;
+    public int PolicyVersion { get; init; } = 2;
     // Oldest first, shared by both routes and persisted with the policy.
     public string[] RuleOrder { get; init; } = [];
     public static RoutingPolicy FullTunnel => new("vpn", [], []);
     public static RoutingPolicy SelectedSites => new("direct", [], []);
+    public static RoutingPolicy Automatic => new("auto", [], []);
 
     public static RoutingPolicy Validate(RoutingPolicy? policy)
     {
         policy ??= FullTunnel;
-        if (policy.DefaultRoute is not ("vpn" or "direct") || policy.VpnDomains == null || policy.DirectDomains == null
+        if (policy.DefaultRoute is not ("vpn" or "direct" or "auto") || policy.VpnDomains == null || policy.DirectDomains == null
             || policy.VpnDomains.Length + policy.DirectDomains.Length > MaximumRules)
-            throw new FormatException("사이트 규칙은 최대 64개이며 기본 경로는 VPN 또는 일반 통신이어야 합니다.");
+            throw new FormatException("사이트 규칙은 최대 64개이며 통신 모드는 자동 판단, VPN 또는 일반 통신이어야 합니다.");
         var vpn = policy.VpnDomains.Select(NormalizeDomain).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray();
         var direct = policy.DirectDomains.Select(NormalizeDomain).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray();
         if (vpn.Intersect(direct, StringComparer.Ordinal).Any())

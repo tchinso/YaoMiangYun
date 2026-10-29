@@ -21,18 +21,20 @@ public sealed class UserProxySession : IAsyncDisposable
     private readonly TaskCompletionSource ready = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private readonly TrafficLogParser parser = new();
     private readonly Action<TrafficRecord> traffic;
+    private readonly AutomaticRoutingSession? automatic;
     private readonly object disposeSync = new();
     private Task? disposal;
     private bool resourcesReleased;
     private SystemProxyLease? lease;
 
     private UserProxySession(Process process, SafeFileHandle job, FileStream binaryLock, FileStream configLock,
-        string directory, int port, Action<TrafficRecord> traffic)
+        string directory, int port, Action<TrafficRecord> traffic, AutomaticRoutingSession? automatic)
     {
         this.process = process; this.job = job; this.binaryLock = binaryLock;
         this.configLock = configLock; this.directory = directory; this.traffic = traffic;
+        this.automatic = automatic;
         ProxyAddress = new Uri("http://127.0.0.1:" + port.ToString(System.Globalization.CultureInfo.InvariantCulture));
-        Exit = process.WaitForExitAsync();
+        Exit = automatic == null ? process.WaitForExitAsync() : Task.WhenAny(process.WaitForExitAsync(), automatic.Failure);
         drains = Task.WhenAll(DrainAsync(process.StandardOutput), DrainAsync(process.StandardError));
     }
 
@@ -61,8 +63,10 @@ public sealed class UserProxySession : IAsyncDisposable
         SafeFileHandle? job = null;
         Process? process = null;
         UserProxySession? session = null;
+        AutomaticRoutingSession? automatic = null;
         try
         {
+            automatic = AutomaticRoutingSession.Create(directory, policy);
             using var reservation = new TcpListener(IPAddress.Loopback, 0);
             reservation.Start();
             var port = ((IPEndPoint)reservation.LocalEndpoint).Port;
@@ -79,7 +83,7 @@ public sealed class UserProxySession : IAsyncDisposable
             reservation.Stop();
             process = Process.Start(start) ?? throw new IOException("Proxy engine did not start.");
             if (!AssignProcessToJobObject(job, process.Handle)) throw new IOException("Proxy job assignment failed.");
-            session = new UserProxySession(process, job, binaryLock, configLock, directory, port, traffic);
+            session = new UserProxySession(process, job, binaryLock, configLock, directory, port, traffic, automatic);
             using var startup = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             startup.CancelAfter(TimeSpan.FromSeconds(25));
             await Task.WhenAny(session.ready.Task, session.Exit).WaitAsync(startup.Token).ConfigureAwait(false);
@@ -88,6 +92,7 @@ public sealed class UserProxySession : IAsyncDisposable
             session.lease = await Task.Run(() => SystemProxyLease.Activate(port), cancellationToken).ConfigureAwait(false);
             cancellationToken.ThrowIfCancellationRequested();
             if (session.Exit.IsCompleted) throw new IOException("Proxy engine terminated during activation.");
+            automatic?.Start();
             return session;
         }
         catch
@@ -117,6 +122,7 @@ public sealed class UserProxySession : IAsyncDisposable
                 }
                 finally
                 {
+                    if (automatic != null) await automatic.DisposeAsync().ConfigureAwait(false);
                     job?.Dispose(); binaryLock?.Dispose(); configLock?.Dispose();
                     DeleteSessionFiles(directory);
                 }
@@ -160,7 +166,7 @@ public sealed class UserProxySession : IAsyncDisposable
                         {
                             TrafficRecord? record;
                             lock (parser) record = parser.Parse(line.ToString().TrimEnd('\r'));
-                            if (record != null) traffic(record);
+                            if (record != null) { automatic?.Observe(record); traffic(record); }
                         }
                         line.Clear(); discard = false;
                     }
@@ -199,12 +205,13 @@ public sealed class UserProxySession : IAsyncDisposable
         catch (Exception error) when (error is IOException or UnauthorizedAccessException) { restoreFailure = error; }
         if (!resourcesReleased)
         {
+            if (automatic != null) await automatic.DisposeAsync().ConfigureAwait(false);
             try
             {
                 // Every constructed session has already been assigned to this job.
                 // Closing its KILL_ON_JOB_CLOSE handle also handles an exit/kill race.
                 job.Dispose();
-                await Exit.WaitAsync(TimeSpan.FromSeconds(8)).ConfigureAwait(false);
+                await process.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(8)).ConfigureAwait(false);
             }
             finally
             {
@@ -224,7 +231,12 @@ public sealed class UserProxySession : IAsyncDisposable
     private static void DeleteSessionFiles(string directory)
     {
         // Only the exact random session and known config created by this invocation.
-        try { File.Delete(Path.Combine(directory, "config.json")); Directory.Delete(directory, false); }
+        try
+        {
+            File.Delete(Path.Combine(directory, "config.json"));
+            File.Delete(Path.Combine(directory, ConfigBuilder.AutomaticRuleFile));
+            Directory.Delete(directory, false);
+        }
         catch (Exception error) when (error is IOException or UnauthorizedAccessException) { }
     }
 

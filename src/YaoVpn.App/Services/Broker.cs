@@ -59,6 +59,7 @@ internal static class Broker
                 throw new IOException("Adapter already in use.");
             session = Path.Combine(PrivateStorage.Root, "session-" + Guid.NewGuid().ToString("N"));
             PrivateStorage.SecureDirectory(session);
+            await using var automatic = AutomaticRoutingSession.Create(session, policy);
             var path = Path.Combine(session, "config.json");
             // Deny both writes and deletion from the initial creation through the child lifetime.
             await using var configLock = new FileStream(path, FileMode.CreateNew, FileAccess.ReadWrite, FileShare.Read);
@@ -66,17 +67,23 @@ internal static class Broker
             await configLock.FlushAsync(startup.Token);
             using var coreLock = BinaryTrust.OpenVerifiedCore();
             stage = "core";
-            await using (var core = await CoreProcess.StartAsync(path, session, startup.Token, record => trafficQueue.Writer.TryWrite(record)))
+            await using (var core = await CoreProcess.StartAsync(path, session, startup.Token, record =>
+            {
+                automatic?.Observe(record);
+                trafficQueue.Writer.TryWrite(record);
+            }))
             {
                 stage = "routes";
                 if (!TunnelHealth.HasRoutes())
                     throw new IOException("Tunnel not ready.");
                 stage = "running";
+                automatic?.Start();
                 await PipeProtocol.WriteAsync(pipe, new("started"), startup.Token);
                 trafficSender = SendTrafficAsync(pipe, trafficQueue.Reader, trafficLifetime.Token);
                 using var stopRead = new CancellationTokenSource();
                 var command = PipeProtocol.ReadAsync(pipe, stopRead.Token);
-                var finished = await Task.WhenAny(command, core.Exit);
+                var finished = automatic == null ? await Task.WhenAny(command, core.Exit)
+                    : await Task.WhenAny(command, core.Exit, automatic.Failure);
                 if (finished == command)
                 {
                     // Any disconnect/unknown command stops the child; no arbitrary elevated operations.
@@ -107,7 +114,13 @@ internal static class Broker
             if (session != null)
             {
                 // Only this broker's exact randomly-created session; never sweep/delete other sessions.
-                try { File.Delete(Path.Combine(session, "config.json")); Directory.Delete(session, false); } catch (IOException) { } catch (UnauthorizedAccessException) { }
+                try
+                {
+                    File.Delete(Path.Combine(session, "config.json"));
+                    File.Delete(Path.Combine(session, ConfigBuilder.AutomaticRuleFile));
+                    Directory.Delete(session, false);
+                }
+                catch (IOException) { } catch (UnauthorizedAccessException) { }
             }
         }
     }

@@ -55,7 +55,7 @@ public partial class TrafficRulesWindow : Window
         {
             var policy = service.CurrentRoutingPolicy;
             var selectedDomain = (RuleList.SelectedItem as DomainRule)?.Domain;
-            RoutingModeBox.SelectedIndex = policy.DefaultRoute == "vpn" ? 0 : 1;
+            RoutingModeBox.SelectedIndex = policy.DefaultRoute switch { "auto" => 0, "vpn" => 1, _ => 2 };
             var rules = policy.VpnDomains.Select(domain => new DomainRule(domain, "vpn"))
                 .Concat(policy.DirectDomains.Select(domain => new DomainRule(domain, "direct")))
                 .OrderBy(rule => rule.Domain, StringComparer.Ordinal).ToArray();
@@ -68,7 +68,10 @@ public partial class TrafficRulesWindow : Window
     private async void RoutingModeBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
         if (loadingPolicy || !CanEdit || RoutingModeBox.SelectedIndex < 0) return;
-        await SaveAsync(service.CurrentRoutingPolicy with { DefaultRoute = RoutingModeBox.SelectedIndex == 1 ? "direct" : "vpn" });
+        await SaveAsync(service.CurrentRoutingPolicy with
+        {
+            DefaultRoute = RoutingModeBox.SelectedIndex switch { 0 => "auto", 1 => "vpn", _ => "direct" }
+        });
     }
 
     private async void VpnRuleButton_Click(object sender, RoutedEventArgs e) => await AddDomainAsync("vpn");
@@ -114,7 +117,9 @@ public partial class TrafficRulesWindow : Window
     {
         if (!CanEdit) return;
         var domains = TrafficList.Items.Cast<TrafficRecord>().Where(record => record.IsDomain)
-            .OrderBy(record => record.Timestamp).Select(record => record.Host).Distinct(StringComparer.Ordinal).ToArray();
+            .OrderBy(record => record.Timestamp)
+            .Select(record => string.Join('.', record.Host.Split('.').TakeLast(3)))
+            .Distinct(StringComparer.Ordinal).ToArray();
         if (domains.Length == 0)
         {
             RoutingHint.Text = "통신 로그에 추가할 도메인이 없습니다. IP 주소는 사이트 규칙에 추가하지 않습니다.";

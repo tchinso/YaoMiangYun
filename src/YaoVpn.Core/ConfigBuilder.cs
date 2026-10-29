@@ -8,6 +8,8 @@ public static class ConfigBuilder
 {
     public const string VpnHealthHost = "connectivitycheck.gstatic.com";
     public const string VpnDiagnosticHost = "one.one.one.one";
+    public const string AutomaticRuleFile = "automatic-rules.json";
+    public const string AutomaticRuleTag = "automatic-vpn";
 
     public static string Build(VpnNode node, bool tun, int mixedPort = 0, RoutingPolicy? policy = null)
     {
@@ -15,8 +17,9 @@ public static class ConfigBuilder
             throw new ArgumentOutOfRangeException(nameof(mixedPort), "A loopback verification port is required without TUN.");
         var vpn = SubscriptionParser.GetSanitizedFields(node, out _, out var server, out _);
         policy = RoutingPolicy.Validate(policy);
-        var directAllowed = !tun || policy.DefaultRoute == "direct" || policy.DirectDomains.Length > 0;
-        var finalDns = policy.DefaultRoute == "direct" ? "bootstrap" : "secure-dns";
+        var automatic = policy.DefaultRoute == "auto";
+        var directAllowed = !tun || policy.DefaultRoute != "vpn" || policy.DirectDomains.Length > 0;
+        var finalDns = policy.DefaultRoute != "vpn" ? "bootstrap" : "secure-dns";
         // VPN server dialing uses direct DoH; application DNS follows the user-owned policy below.
         if (!IPAddress.TryParse(server, out _)) vpn["domain_resolver"] = "bootstrap";
 
@@ -61,10 +64,15 @@ public static class ConfigBuilder
         var suffixes = policy.VpnDomains.Select(domain => (Domain: domain, Route: "vpn"))
             .Concat(policy.DirectDomains.Select(domain => (Domain: domain, Route: "direct")))
             .OrderByDescending(rule => rule.Domain.Length).ThenBy(rule => rule.Domain, StringComparer.Ordinal);
-        foreach (var suffix in suffixes)
+        foreach (var suffix in automatic ? Enumerable.Empty<(string Domain, string Route)>() : suffixes)
         {
             routeRules.Add(new { domain_suffix = new[] { suffix.Domain }, action = "route", outbound = suffix.Route });
             dnsRules.Add(new { domain_suffix = new[] { suffix.Domain }, action = "route", server = suffix.Route == "vpn" ? "secure-dns" : "bootstrap" });
+        }
+        if (automatic)
+        {
+            routeRules.Add(new { rule_set = new[] { AutomaticRuleTag }, action = "route", outbound = "vpn" });
+            dnsRules.Add(new { rule_set = new[] { AutomaticRuleTag }, action = "route", server = "secure-dns" });
         }
 
         var inbounds = new List<object>();
@@ -107,8 +115,9 @@ public static class ConfigBuilder
         {
             ["default_domain_resolver"] = finalDns,
             ["rules"] = routeRules,
-            ["final"] = policy.DefaultRoute
+            ["final"] = automatic ? "direct" : policy.DefaultRoute
         };
+        if (automatic) route["rule_set"] = new[] { new { type = "local", tag = AutomaticRuleTag, format = "source", path = AutomaticRuleFile } };
         // Socket-proxy mode needs no adapter binding, system routes or DNS mutation.
         if (tun) route["auto_detect_interface"] = true;
 

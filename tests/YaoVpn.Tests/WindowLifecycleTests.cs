@@ -23,6 +23,10 @@ internal static class WindowLifecycleTests
             Log("move.example");
             Log("new.example");
             Log("new.example");
+            Log("one.two.three.four");
+            Log("other.two.three.four");
+            Log("zero.one.two.three.four");
+            Log("three.parts.example");
             Log("192.0.2.1");
             Log("2001:db8::1");
             var saves = 0;
@@ -46,7 +50,7 @@ internal static class WindowLifecycleTests
                 await save;
                 var policy = service.CurrentRoutingPolicy;
                 if (saves != 1 || policy.DefaultRoute != "direct"
-                    || !policy.VpnDomains.SequenceEqual(new[] { "keep.example", "move.example", "new.example" })
+                    || !policy.VpnDomains.SequenceEqual(new[] { "keep.example", "move.example", "new.example", "three.parts.example", "two.three.four" })
                     || !policy.DirectDomains.SequenceEqual(new[] { "stay.example" }))
                     throw new Exception("Bulk VPN rules did not merge, deduplicate, exclude IPs, or preserve unrelated rules.");
                 if (!add.IsEnabled || !removeAll.IsEnabled)
@@ -62,10 +66,10 @@ internal static class WindowLifecycleTests
                     || service.CurrentRoutingPolicy.VpnDomains.Contains("keep.example")
                     || service.CurrentRoutingPolicy.RuleOrder[0] != "site0.example")
                     throw new Exception("Bulk rules did not evict older rules across both routes.");
-                ((TextBox)window.FindName("DomainBox")).Text = "manual.example";
+                ((TextBox)window.FindName("DomainBox")).Text = "manual.two.three.four";
                 ((Button)window.FindName("DirectRuleButton")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
                 if (saves != 3 || service.CurrentRoutingPolicy.VpnDomains.Contains("site0.example")
-                    || !service.CurrentRoutingPolicy.DirectDomains.SequenceEqual(new[] { "manual.example" }))
+                    || !service.CurrentRoutingPolicy.DirectDomains.SequenceEqual(new[] { "manual.two.three.four" }))
                     throw new Exception("Manual rule addition did not evict the oldest bulk rule.");
                 window.SetOwnerState(true, false, service.Status);
                 if (add.IsEnabled || removeAll.IsEnabled)

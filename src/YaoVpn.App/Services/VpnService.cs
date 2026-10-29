@@ -38,7 +38,7 @@ public sealed class VpnService : IAsyncDisposable
     public event Action<VpnStatus>? StatusChanged;
     public VpnStatus Status { get; private set; } = new("OFF", "VPN이 꺼져 있습니다.", false, false);
     public string? SavedUrl { get; private set; }
-    public RoutingPolicy CurrentRoutingPolicy { get; private set; } = RoutingPolicy.SelectedSites;
+    public RoutingPolicy CurrentRoutingPolicy { get; private set; } = RoutingPolicy.Automatic;
     public ConnectionMode? ActiveMode { get; private set; }
     public string? ActiveServerId { get; private set; }
     public string? ActiveServerName { get; private set; }
@@ -62,12 +62,21 @@ public sealed class VpnService : IAsyncDisposable
         try
         {
             var saved = await Task.Run(() => PrivateStorage.Load("routing.dpapi"), cancellationToken);
-            CurrentRoutingPolicy = saved == null ? RoutingPolicy.SelectedSites
-                : RoutingPolicy.Validate(JsonSerializer.Deserialize<RoutingPolicy>(saved) ?? throw new FormatException());
+            CurrentRoutingPolicy = ReadSavedRoutingPolicy(saved);
         }
         catch (Exception e) when (e is FormatException or JsonException or IOException or System.Security.Cryptography.CryptographicException)
         { throw new InvalidOperationException("저장된 사이트 규칙을 읽지 못했습니다. 규칙을 다시 저장해 주세요."); }
         finally { gate.Release(); }
+    }
+
+    internal static RoutingPolicy ReadSavedRoutingPolicy(string? saved)
+    {
+        if (saved == null) return RoutingPolicy.Automatic;
+        using var document = JsonDocument.Parse(saved);
+        var policy = RoutingPolicy.Validate(JsonSerializer.Deserialize<RoutingPolicy>(saved) ?? throw new FormatException());
+        // Introduce the new default once for pre-automatic settings, preserving every saved domain.
+        return document.RootElement.TryGetProperty(nameof(RoutingPolicy.PolicyVersion), out _)
+            ? policy : policy with { DefaultRoute = "auto" };
     }
 
     public async Task SaveRoutingPolicyAsync(RoutingPolicy policy, CancellationToken cancellationToken = default)
@@ -237,7 +246,7 @@ public sealed class VpnService : IAsyncDisposable
                 failureStage = "https";
                 if (!await ProbeAsync(cancellationToken) || !ReferenceEquals(proxySession, currentProxy)
                     || currentProxy.Exit.IsCompleted || monitor.IsCompleted || terminalMessage != null) throw new IOException();
-                Set("ON", policy.DefaultRoute == "vpn"
+                Set("ON", policy.DefaultRoute == "auto" ? "앱 프록시 ON · 자동 판단 · 최초 10분 전체 VPN → 학습·저장 도메인만 VPN" : policy.DefaultRoute == "vpn"
                     ? "앱 프록시 ON · 시스템 프록시 사용 앱의 TCP 통신 · 기본 VPN"
                     : "앱 프록시 ON · 지정한 사이트만 VPN · 나머지는 일반 통신", true);
                 return;
@@ -269,7 +278,7 @@ public sealed class VpnService : IAsyncDisposable
             Set("CONNECTING", "터널을 만들었습니다. HTTPS 연결을 확인합니다.", busy: true);
             if (!await ProbeAsync(timeout.Token) || broker.HasExited || !TunnelHealth.HasRoutes()
                 || !ReferenceEquals(pipe, session) || terminalMessage != null || monitor.IsCompleted) throw new IOException();
-            Set("ON", policy.DefaultRoute == "vpn"
+            Set("ON", policy.DefaultRoute == "auto" ? "VPN 연결됨 · 자동 판단 · 최초 10분 전체 VPN → 학습·저장 도메인만 VPN" : policy.DefaultRoute == "vpn"
                 ? "VPN 연결됨 · 기본 VPN / 지정한 일반 통신 예외 적용"
                 : "VPN 연결됨 · 지정한 사이트만 VPN / 기본 일반 통신", true);
         }

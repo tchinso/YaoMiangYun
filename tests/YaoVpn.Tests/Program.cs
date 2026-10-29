@@ -15,6 +15,11 @@ public static class Program
     {
         try
         {
+            if (args is ["--automatic-routing"])
+            {
+                await AutomaticRoutingTests.RunAsync();
+                return 0;
+            }
             if (args is ["--window-lifecycle"])
             {
                 await WindowLifecycleTests.RunAsync();
@@ -61,6 +66,7 @@ public static class Program
             ProxySessionTests.Run();
             await IpcSecurityTests.RunAsync();
             await TrafficSecurityTests.RunAsync();
+            await AutomaticRoutingTests.RunAsync();
             await GeneratedConfigTests.RunAsync();
             using (BinaryTrust.OpenVerifiedCore()) { }
             var name = "test-" + Guid.NewGuid().ToString("N") + ".dpapi";

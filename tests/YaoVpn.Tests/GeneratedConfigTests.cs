@@ -18,6 +18,7 @@ internal static class GeneratedConfigTests
         var policies = new[]
         {
             RoutingPolicy.FullTunnel,
+            RoutingPolicy.Automatic,
             new RoutingPolicy("vpn", ["private.example.com"], ["example.com"]),
             new RoutingPolicy("direct", ["example.com"], ["public.example.com"])
         };
@@ -30,6 +31,7 @@ internal static class GeneratedConfigTests
             foreach (var node in nodes)
                 foreach (var policy in policies)
                 {
+                    await using var automatic = AutomaticRoutingSession.Create(directory, policy);
                     await File.WriteAllTextAsync(path, ConfigBuilder.Build(node, true, policy: policy));
                     var start = CoreProcess.CreateStartInfo(path, directory);
                     start.ArgumentList[0] = "check";
@@ -40,8 +42,13 @@ internal static class GeneratedConfigTests
                     finally { if (!child.HasExited) { child.Kill(true); await child.WaitForExitAsync(); } }
                     await drains;
                     if (child.ExitCode != 0) throw new Exception("Pinned core rejected a generated routing configuration.");
+                    if (automatic != null)
+                    {
+                        await automatic.DisposeAsync();
+                        File.Delete(Path.Combine(directory, ConfigBuilder.AutomaticRuleFile));
+                    }
                 }
-            Console.WriteLine("PASS: pinned core accepted all protocols with full VPN and both split-routing policies");
+            Console.WriteLine("PASS: pinned core accepted all protocols with automatic, full VPN, and both split-routing policies");
         }
         finally { File.Delete(path); Directory.Delete(directory, false); }
     }
