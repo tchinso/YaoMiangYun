@@ -7,6 +7,8 @@ namespace YaoVpn.Core;
 public sealed record RoutingPolicy(string DefaultRoute, string[] VpnDomains, string[] DirectDomains)
 {
     public const int MaximumRules = 64;
+    // Oldest first, shared by both routes and persisted with the policy.
+    public string[] RuleOrder { get; init; } = [];
     public static RoutingPolicy FullTunnel => new("vpn", [], []);
     public static RoutingPolicy SelectedSites => new("direct", [], []);
 
@@ -20,7 +22,32 @@ public sealed record RoutingPolicy(string DefaultRoute, string[] VpnDomains, str
         var direct = policy.DirectDomains.Select(NormalizeDomain).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray();
         if (vpn.Intersect(direct, StringComparer.Ordinal).Any())
             throw new FormatException("같은 도메인을 VPN과 일반 통신에 동시에 지정할 수 없습니다.");
-        return new(policy.DefaultRoute, vpn, direct);
+        if (policy.RuleOrder == null || policy.RuleOrder.Length > MaximumRules)
+            throw new FormatException("사이트 규칙의 등록 순서가 올바르지 않습니다.");
+        var domains = vpn.Concat(direct).ToHashSet(StringComparer.Ordinal);
+        // Older files have no registration history. Use their stored order as a stable fallback.
+        var order = policy.RuleOrder.Select(NormalizeDomain).Where(domains.Contains)
+            .Concat(policy.VpnDomains.Select(NormalizeDomain))
+            .Concat(policy.DirectDomains.Select(NormalizeDomain)).Distinct(StringComparer.Ordinal).ToArray();
+        return new(policy.DefaultRoute, vpn, direct) { RuleOrder = order };
+    }
+
+    public RoutingPolicy AddDomains(IEnumerable<string> domains, string route)
+    {
+        if (route is not ("vpn" or "direct")) throw new FormatException("올바른 통신 경로를 선택해 주세요.");
+        var current = Validate(this);
+        var additions = domains.Select(NormalizeDomain).Distinct(StringComparer.Ordinal).ToArray();
+        var added = additions.ToHashSet(StringComparer.Ordinal);
+        // Updating an existing rule does not change its original registration order.
+        var order = current.RuleOrder.Concat(additions).Distinct(StringComparer.Ordinal)
+            .TakeLast(MaximumRules).ToArray();
+        var retained = order.ToHashSet(StringComparer.Ordinal);
+        var vpn = current.VpnDomains.Where(domain => !added.Contains(domain));
+        var direct = current.DirectDomains.Where(domain => !added.Contains(domain));
+        if (route == "vpn") vpn = vpn.Concat(additions);
+        else direct = direct.Concat(additions);
+        return Validate(new(current.DefaultRoute, vpn.Where(retained.Contains).ToArray(),
+            direct.Where(retained.Contains).ToArray()) { RuleOrder = order });
     }
 
     public static string NormalizeDomain(string value)

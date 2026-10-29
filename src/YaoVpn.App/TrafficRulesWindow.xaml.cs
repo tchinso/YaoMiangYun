@@ -80,19 +80,47 @@ public partial class TrafficRulesWindow : Window
         string domain;
         try { domain = RoutingPolicy.NormalizeDomain(DomainBox.Text.Trim()); }
         catch (FormatException error) { RoutingHint.Text = error.Message; DomainBox.Focus(); return; }
-        var current = service.CurrentRoutingPolicy;
-        var vpn = current.VpnDomains.Where(value => value != domain).ToList();
-        var direct = current.DirectDomains.Where(value => value != domain).ToList();
-        (route == "vpn" ? vpn : direct).Add(domain);
-        await SaveAsync(new(current.DefaultRoute, vpn.ToArray(), direct.ToArray()));
+        await SaveAsync(service.CurrentRoutingPolicy.AddDomains([domain], route));
     }
 
     private async void RemoveRuleButton_Click(object sender, RoutedEventArgs e)
     {
         if (!CanEdit || RuleList.SelectedItem is not DomainRule selected) return;
         var current = service.CurrentRoutingPolicy;
-        await SaveAsync(new(current.DefaultRoute, current.VpnDomains.Where(value => value != selected.Domain).ToArray(),
-            current.DirectDomains.Where(value => value != selected.Domain).ToArray()));
+        await SaveAsync(current with
+        {
+            VpnDomains = current.VpnDomains.Where(value => value != selected.Domain).ToArray(),
+            DirectDomains = current.DirectDomains.Where(value => value != selected.Domain).ToArray()
+        });
+    }
+
+    private async void RemoveAllRulesButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (!CanEdit) return;
+        var current = service.CurrentRoutingPolicy;
+        if (current.VpnDomains.Length + current.DirectDomains.Length == 0)
+        {
+            RoutingHint.Text = "삭제할 사이트 규칙이 없습니다.";
+            return;
+        }
+        if (MessageBox.Show(this,
+            "저장된 모든 사이트 규칙을 정말 삭제하시겠습니까? 이 작업은 되돌릴 수 없습니다.\n\n나머지 사이트의 기본 통신 경로는 유지되며, 삭제는 다음 VPN 연결부터 적용됩니다.",
+            "모든 규칙 삭제", MessageBoxButton.YesNo, MessageBoxImage.Warning, MessageBoxResult.No) != MessageBoxResult.Yes)
+            return;
+        await SaveAsync(service.CurrentRoutingPolicy with { VpnDomains = [], DirectDomains = [] });
+    }
+
+    private async void AddAllTrafficVpnButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (!CanEdit) return;
+        var domains = TrafficList.Items.Cast<TrafficRecord>().Where(record => record.IsDomain)
+            .OrderBy(record => record.Timestamp).Select(record => record.Host).Distinct(StringComparer.Ordinal).ToArray();
+        if (domains.Length == 0)
+        {
+            RoutingHint.Text = "통신 로그에 추가할 도메인이 없습니다. IP 주소는 사이트 규칙에 추가하지 않습니다.";
+            return;
+        }
+        await SaveAsync(service.CurrentRoutingPolicy.AddDomains(domains, "vpn"));
     }
 
     private async Task SaveAsync(RoutingPolicy policy)
@@ -147,6 +175,8 @@ public partial class TrafficRulesWindow : Window
         VpnRuleButton.IsEnabled = CanEdit;
         DirectRuleButton.IsEnabled = CanEdit;
         RemoveRuleButton.IsEnabled = CanEdit;
+        RemoveAllRulesButton.IsEnabled = CanEdit;
+        AddAllTrafficVpnButton.IsEnabled = CanEdit;
         ClearTrafficButton.IsEnabled = !ownerClosing;
     }
 

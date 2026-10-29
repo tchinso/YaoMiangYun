@@ -15,8 +15,14 @@
                     <TextBox x:Name="DomainBox" Grid.Row="1" Background="#0D1929" Foreground="#EDF3F8" BorderBrush="#34455E" Padding="10,9" VerticalContentAlignment="Center" MaxLength="253" Margin="0,13,0,0" AutomationProperties.Name="사이트 도메인" ToolTip="example.com 형태로 입력하거나 로그에서 도메인을 선택하세요"/>
                     <Grid Grid.Row="2" Margin="0,8,0,11"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="8"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions><Button x:Name="VpnRuleButton" Content="VPN으로" Click="VpnRuleButton_Click" Padding="12,9"/><Button x:Name="DirectRuleButton" Grid.Column="2" Content="일반 통신으로" Click="DirectRuleButton_Click" Padding="12,9"/></Grid>
                     <ListBox x:Name="RuleList" Grid.Row="3" MinHeight="110" Background="#0D1929" Foreground="#EDF3F8" BorderBrush="#34455E" DisplayMemberPath="Label" AutomationProperties.Name="저장된 사이트 규칙" ScrollViewer.HorizontalScrollBarVisibility="Auto"/>
-                    <Button x:Name="RemoveRuleButton" Grid.Row="4" Content="선택 규칙 삭제" Click="RemoveRuleButton_Click" HorizontalAlignment="Left" Padding="12,8" Margin="0,10,0,0"/>
-                    <TextBlock x:Name="RoutingHint" Grid.Row="5" Text="규칙은 저장되며 다음 VPN 연결부터 적용됩니다." Foreground="{StaticResource MutedBrush}" FontSize="11" TextWrapping="Wrap" LineHeight="18" Margin="0,10,0,0" MinHeight="36"/>
+                    <WrapPanel Grid.Row="4" Margin="0,10,0,0">
+                        <Button x:Name="RemoveRuleButton" Content="선택 규칙 삭제" Click="RemoveRuleButton_Click" Padding="12,8" Margin="0,0,8,0"/>
+                        <Button x:Name="RemoveAllRulesButton" Content="모든 규칙 삭제" Click="RemoveAllRulesButton_Click" Padding="12,8"/>
+                    </WrapPanel>
+                    <StackPanel Grid.Row="5" Margin="0,10,0,0">
+                        <TextBlock Text="최대 64개 · 초과하면 먼저 등록한 규칙부터 자동 삭제됩니다." Foreground="{StaticResource MutedBrush}" FontSize="11" TextWrapping="Wrap" LineHeight="18"/>
+                        <TextBlock x:Name="RoutingHint" Text="규칙은 저장되며 다음 VPN 연결부터 적용됩니다." Foreground="{StaticResource MutedBrush}" FontSize="11" TextWrapping="Wrap" LineHeight="18" Margin="0,4,0,0" MinHeight="36"/>
+                    </StackPanel>
                 </Grid>
             </Border>
             <Border Grid.Column="2" Background="#111E30" BorderBrush="#24334A" BorderThickness="1" CornerRadius="14" Padding="18">
@@ -25,7 +31,10 @@
                     <ListView x:Name="TrafficList" Grid.Row="1" Background="#0D1929" Foreground="#EDF3F8" BorderBrush="#34455E" SelectionChanged="TrafficList_SelectionChanged" ScrollViewer.HorizontalScrollBarVisibility="Auto" AutomationProperties.Name="통신 연결 시도 로그" VirtualizingPanel.IsVirtualizing="True" VirtualizingPanel.VirtualizationMode="Recycling">
                         <ListView.View><GridView><GridViewColumn Header="시간" Width="65" DisplayMemberBinding="{Binding DisplayTime}"/><GridViewColumn Header="도메인 / IP" Width="210" DisplayMemberBinding="{Binding Host}"/><GridViewColumn Header="포트" Width="45" DisplayMemberBinding="{Binding Port}"/><GridViewColumn Header="통신" Width="47" DisplayMemberBinding="{Binding Network}"/><GridViewColumn Header="경로" Width="77" DisplayMemberBinding="{Binding RouteLabel}"/></GridView></ListView.View>
                     </ListView>
-                    <Button x:Name="ClearTrafficButton" Grid.Row="2" Content="로그 지우기" Click="ClearTrafficButton_Click" HorizontalAlignment="Left" Padding="12,8" Margin="0,10,0,0"/>
+                    <StackPanel Grid.Row="2" Margin="0,10,0,0">
+                        <Button x:Name="AddAllTrafficVpnButton" Content="통신 로그의 모든 도메인을 VPN 연결로 추가" Click="AddAllTrafficVpnButton_Click" HorizontalAlignment="Left" Padding="12,8" ToolTip="중복 도메인과 IP 주소는 제외하며, 같은 도메인의 일반 통신 규칙은 VPN으로 바꿉니다."/>
+                        <Button x:Name="ClearTrafficButton" Content="로그 지우기" Click="ClearTrafficButton_Click" HorizontalAlignment="Left" Padding="12,8" Margin="0,8,0,0"/>
+                    </StackPanel>
                     <TextBlock Grid.Row="3" Text="최근 300개 · 메모리에만 보관합니다. 연결 성공 여부나 패킷 본문을 기록하는 기능은 아닙니다." Foreground="{StaticResource MutedBrush}" FontSize="11" TextWrapping="Wrap" LineHeight="18" Margin="0,10,0,0"/>
                 </Grid>
             </Border>

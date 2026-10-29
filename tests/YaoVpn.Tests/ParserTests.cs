@@ -35,6 +35,7 @@ public static class ParserTests
         PublicEndpointsOnly();
         BuildsApplicationPolicy();
         BuildsUserRoutingPolicy();
+        EvictsOldestRoutingRules();
         BuildsUnprivilegedProxyPolicy();
     }
 
@@ -263,6 +264,36 @@ public static class ParserTests
         Throws<FormatException>(() => ConfigBuilder.Build(node, true, policy: new("vpn", ["EXAMPLE.COM"], ["example.com"])));
         Throws<FormatException>(() => ConfigBuilder.Build(node, true, policy: new("vpn", Enumerable.Range(0, 65).Select(i => "d" + i + ".example.com").ToArray(), [])));
         Assert(RoutingPolicy.NormalizeDomain("예시.한국") == "xn--vv4b11d.xn--3e0b707e", "Internationalized domain rules use canonical IDN ASCII.");
+    }
+
+    private static void EvictsOldestRoutingRules()
+    {
+        var policy = RoutingPolicy.SelectedSites.AddDomains(["z.example"], "direct")
+            .AddDomains(["a.example"], "vpn")
+            .AddDomains(Enumerable.Range(0, 62).Select(i => $"site{i}.example"), "vpn");
+        policy = RoutingPolicy.Validate(JsonSerializer.Deserialize<RoutingPolicy>(JsonSerializer.Serialize(policy)));
+        Assert(policy.RuleOrder[0] == "z.example" && policy.RuleOrder[1] == "a.example",
+            "Registration order survives persistence despite alphabetical display and mixed routes.");
+        policy = policy.AddDomains(["Z.EXAMPLE.", "z.example"], "vpn");
+        Assert(policy.RuleOrder.Length == 64 && policy.RuleOrder[0] == "z.example" && policy.DirectDomains.Length == 0,
+            "Duplicate additions and route changes retain original registration age without evicting rules.");
+        policy = policy.AddDomains(["new.example"], "direct");
+        Assert(!policy.VpnDomains.Contains("z.example") && policy.VpnDomains.Contains("a.example")
+            && policy.DirectDomains.SequenceEqual(new[] { "new.example" }) && policy.DefaultRoute == "direct",
+            "The oldest rule is evicted across routes while preserving default routing.");
+        policy = policy.AddDomains(Enumerable.Range(0, 100).Select(i => $"bulk{i}.example"), "vpn");
+        Assert(policy.RuleOrder.Length == 64 && policy.RuleOrder[0] == "bulk36.example"
+            && policy.RuleOrder[^1] == "bulk99.example" && policy.DirectDomains.Length == 0,
+            "Oversized batches retain the last 64 newly registered domains.");
+        policy = RoutingPolicy.Validate(policy with { VpnDomains = policy.VpnDomains.Where(d => d != "bulk36.example").ToArray() });
+        policy = policy.AddDomains(["bulk36.example"], "direct");
+        Assert(policy.RuleOrder[^1] == "bulk36.example", "Deleted and re-added domains receive a new registration age.");
+        policy = RoutingPolicy.Validate(policy with { VpnDomains = [], DirectDomains = [] });
+        Assert(policy.RuleOrder.Length == 0, "Deleting all rules also clears registration history.");
+        var legacy = RoutingPolicy.Validate(JsonSerializer.Deserialize<RoutingPolicy>(
+            """{"DefaultRoute":"vpn","VpnDomains":["z.example","a.example"],"DirectDomains":["b.example"]}"""));
+        Assert(legacy.RuleOrder.SequenceEqual(new[] { "z.example", "a.example", "b.example" }),
+            "Legacy policies without history use a deterministic stored-order fallback.");
     }
 
     private static void BuildsUnprivilegedProxyPolicy()

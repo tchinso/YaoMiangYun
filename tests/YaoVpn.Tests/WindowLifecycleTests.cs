@@ -1,8 +1,11 @@
 using System.Reflection;
+using System.Collections.ObjectModel;
+using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Threading;
 using YaoVpn.App;
 using YaoVpn.App.Services;
+using YaoVpn.Core;
 
 namespace YaoVpn.Tests;
 
@@ -10,6 +13,67 @@ internal static class WindowLifecycleTests
 {
     public static async Task RunAsync()
     {
+        await RunOnStaAsync(async () =>
+        {
+            await using var service = new VpnService();
+            var policyProperty = typeof(VpnService).GetProperty(nameof(VpnService.CurrentRoutingPolicy))!;
+            policyProperty.SetValue(service, new RoutingPolicy("direct", ["keep.example"], ["move.example", "stay.example"]));
+            var traffic = new ObservableCollection<TrafficRecord>();
+            void Log(string host) => traffic.Add(new(DateTimeOffset.Now, host, 443, "TCP", "direct"));
+            Log("move.example");
+            Log("new.example");
+            Log("new.example");
+            Log("192.0.2.1");
+            Log("2001:db8::1");
+            var saves = 0;
+            var pending = new TaskCompletionSource<bool>();
+            var window = new TrafficRulesWindow(service, traffic, async policy =>
+            {
+                saves++;
+                await pending.Task;
+                policyProperty.SetValue(service, policy);
+                return true;
+            }, traffic.Clear);
+            try
+            {
+                var add = (Button)window.FindName("AddAllTrafficVpnButton");
+                var removeAll = (Button)window.FindName("RemoveAllRulesButton");
+                add.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                if (add.IsEnabled || removeAll.IsEnabled || window.PendingSave == null)
+                    throw new Exception("Bulk actions did not lock while saving.");
+                var save = window.PendingSave;
+                pending.SetResult(true);
+                await save;
+                var policy = service.CurrentRoutingPolicy;
+                if (saves != 1 || policy.DefaultRoute != "direct"
+                    || !policy.VpnDomains.SequenceEqual(new[] { "keep.example", "move.example", "new.example" })
+                    || !policy.DirectDomains.SequenceEqual(new[] { "stay.example" }))
+                    throw new Exception("Bulk VPN rules did not merge, deduplicate, exclude IPs, or preserve unrelated rules.");
+                if (!add.IsEnabled || !removeAll.IsEnabled)
+                    throw new Exception("Bulk actions remained locked after saving.");
+                ((Button)window.FindName("ClearTrafficButton")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                add.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                if (saves != 1 || traffic.Count != 0)
+                    throw new Exception("Cleared traffic was reused for bulk rules.");
+                for (var i = 0; i < RoutingPolicy.MaximumRules; i++) Log($"site{i}.example");
+                add.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                if (saves != 2 || service.CurrentRoutingPolicy.VpnDomains.Length != RoutingPolicy.MaximumRules
+                    || service.CurrentRoutingPolicy.DirectDomains.Length != 0
+                    || service.CurrentRoutingPolicy.VpnDomains.Contains("keep.example")
+                    || service.CurrentRoutingPolicy.RuleOrder[0] != "site0.example")
+                    throw new Exception("Bulk rules did not evict older rules across both routes.");
+                ((TextBox)window.FindName("DomainBox")).Text = "manual.example";
+                ((Button)window.FindName("DirectRuleButton")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                if (saves != 3 || service.CurrentRoutingPolicy.VpnDomains.Contains("site0.example")
+                    || !service.CurrentRoutingPolicy.DirectDomains.SequenceEqual(new[] { "manual.example" }))
+                    throw new Exception("Manual rule addition did not evict the oldest bulk rule.");
+                window.SetOwnerState(true, false, service.Status);
+                if (add.IsEnabled || removeAll.IsEnabled)
+                    throw new Exception("Bulk actions were enabled while the owner was busy.");
+            }
+            finally { window.CloseWithOwner(); }
+        });
+        Console.WriteLine("PASS: bulk VPN rule merge, IP exclusion, save locking, cleared logs, oldest-rule eviction for bulk and manual additions");
         await RunOnStaAsync(async () =>
         {
             await WithWindowAsync(async (window, service, closed) =>
