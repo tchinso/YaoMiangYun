@@ -246,7 +246,7 @@ public sealed class VpnService : IAsyncDisposable
                 failureStage = "https";
                 if (!await ProbeAsync(cancellationToken) || !ReferenceEquals(proxySession, currentProxy)
                     || currentProxy.Exit.IsCompleted || monitor.IsCompleted || terminalMessage != null) throw new IOException();
-                Set("ON", policy.DefaultRoute == "auto" ? "앱 프록시 ON · 자동 판단 · 최초 10분 전체 VPN → 학습·저장 도메인만 VPN" : policy.DefaultRoute == "vpn"
+                Set("ON", policy.DefaultRoute == "auto" ? "앱 프록시 ON · 자동 판단 · 최초 2분 전체 VPN → 학습·저장 도메인만 VPN" : policy.DefaultRoute == "vpn"
                     ? "앱 프록시 ON · 시스템 프록시 사용 앱의 TCP 통신 · 기본 VPN"
                     : "앱 프록시 ON · 지정한 사이트만 VPN · 나머지는 일반 통신", true);
                 return;
@@ -278,7 +278,7 @@ public sealed class VpnService : IAsyncDisposable
             Set("CONNECTING", "터널을 만들었습니다. HTTPS 연결을 확인합니다.", busy: true);
             if (!await ProbeAsync(timeout.Token) || broker.HasExited || !TunnelHealth.HasRoutes()
                 || !ReferenceEquals(pipe, session) || terminalMessage != null || monitor.IsCompleted) throw new IOException();
-            Set("ON", policy.DefaultRoute == "auto" ? "VPN 연결됨 · 자동 판단 · 최초 10분 전체 VPN → 학습·저장 도메인만 VPN" : policy.DefaultRoute == "vpn"
+            Set("ON", policy.DefaultRoute == "auto" ? "VPN 연결됨 · 자동 판단 · 최초 2분 전체 VPN → 학습·저장 도메인만 VPN" : policy.DefaultRoute == "vpn"
                 ? "VPN 연결됨 · 기본 VPN / 지정한 일반 통신 예외 적용"
                 : "VPN 연결됨 · 지정한 사이트만 VPN / 기본 일반 통신", true);
         }

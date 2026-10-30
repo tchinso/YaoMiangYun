@@ -19,7 +19,7 @@ internal static class AutomaticRoutingTests
         if (legacy.DefaultRoute != "auto" || legacy.VpnDomains.Single() != "saved.example") throw new Exception("Legacy routing migration lost rules or the new default.");
         if (VpnService.ReadSavedRoutingPolicy(JsonSerializer.Serialize(RoutingPolicy.SelectedSites)).DefaultRoute != "direct")
             throw new Exception("A manually saved routing mode was overwritten.");
-        if (AutomaticRoutingSession.LearningDuration != TimeSpan.FromMinutes(10)) throw new Exception("Incorrect learning duration.");
+        if (AutomaticRoutingSession.LearningDuration != TimeSpan.FromMinutes(2)) throw new Exception("Incorrect learning duration.");
         await VerifyLearningAsync();
         await VerifyCoreReloadAsync();
         Console.WriteLine("PASS: automatic default/migration, independent learning, freeze/cancel, pinned-core live routing switch without restart");

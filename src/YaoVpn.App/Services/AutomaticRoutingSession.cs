@@ -8,7 +8,7 @@ namespace YaoVpn.App.Services;
 /// <summary>One connection's learning window, independent of the bounded UI traffic log.</summary>
 internal sealed class AutomaticRoutingSession : IAsyncDisposable
 {
-    internal static readonly TimeSpan LearningDuration = TimeSpan.FromMinutes(10);
+    internal static readonly TimeSpan LearningDuration = TimeSpan.FromMinutes(2);
     internal const int MaximumLearnedDomains = 16384;
     // A tautology also matches IP-only connections and DNS queries without IP metadata.
     internal const string LearningRules = """{"version":3,"rules":[{"type":"logical","mode":"or","rules":[{"domain_regex":["^"]},{"domain_regex":["^"],"invert":true}]}]}""";
